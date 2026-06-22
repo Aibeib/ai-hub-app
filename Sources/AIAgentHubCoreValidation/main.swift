@@ -22,6 +22,15 @@ struct ValidationRunner {
             try validatePrivacyPreferences()
             try validateSessionMutationOperations()
             try await validateStreamingChatOrchestrator()
+            try await validateThirdPartyPrivacyGate()
+            try await validateRedactionOptOut()
+            try await validateAutoTitling()
+            try await validateRegenerate()
+            try validateSessionTitleDeriver()
+            try validateConversationExporter()
+            try await validateTokenUsageTracking()
+            try await validateMessageSearch()
+            try await validateGenerationCancellation()
             print("AIAgentHubCoreValidation: all checks passed")
         } catch {
             fputs("AIAgentHubCoreValidation failed: \(error)\n", stderr)
@@ -559,6 +568,369 @@ struct ValidationRunner {
         if !condition() {
             throw ValidationError(message)
         }
+    }
+
+    // MARK: - Round 4: privacy enforcement
+
+    private static func validateThirdPartyPrivacyGate() async throws {
+        let repository = InMemoryChatRepository()
+        let session = repository.createSession(title: "Privacy gate", modelConfigId: nil)
+        let model = ResolvedModelConfig(
+            id: UUID(),
+            provider: .openai,
+            name: "Test",
+            modelName: "gpt-test",
+            endpoint: URL(string: "https://example.com"),
+            apiKey: "sk-test",
+            temperature: 0.7,
+            maxTokens: 100
+        )
+        let prefs = PrivacyPreferences(
+            allowThirdPartyAPIs: false,
+            enableLocalNetworkDiscovery: false,
+            redactBeforeSending: true,
+            retainAuditLogsDays: 30
+        )
+        let orchestrator = ChatOrchestrator(
+            repository: repository,
+            aiService: StubAIService(events: [.token("should-not-reach"), .completed]),
+            privacyPreferences: prefs
+        )
+
+        do {
+            _ = try await orchestrator.sendUserMessage("Hello", in: session.id, using: model)
+            throw ValidationError("third-party gate should have thrown")
+        } catch ChatOrchestratorError.thirdPartyDisabled(let provider) {
+            try require(provider == .openai, "third-party error should carry provider")
+        }
+
+        // No messages should have been persisted
+        try require(repository.messages(for: session.id).isEmpty, "no messages should be appended when blocked")
+
+        // Apple on-device should bypass the gate
+        let appleModel = ResolvedModelConfig(
+            id: UUID(),
+            provider: .apple,
+            name: "Apple",
+            modelName: "on-device",
+            endpoint: nil,
+            apiKey: nil,
+            temperature: 0.7,
+            maxTokens: 100
+        )
+        let appleOrchestrator = ChatOrchestrator(
+            repository: repository,
+            aiService: StubAIService(events: [.token("local-ok"), .completed]),
+            privacyPreferences: prefs
+        )
+        let response = try await appleOrchestrator.sendUserMessage("Hi", in: session.id, using: appleModel)
+        try require(response == "local-ok", "Apple provider should bypass third-party gate")
+    }
+
+    private static func validateRedactionOptOut() async throws {
+        let repository = InMemoryChatRepository()
+        let session = repository.createSession(title: "Redaction opt-out", modelConfigId: nil)
+        let model = ResolvedModelConfig(
+            id: UUID(),
+            provider: .openai,
+            name: "Test",
+            modelName: "gpt-test",
+            endpoint: URL(string: "https://example.com"),
+            apiKey: "sk-test",
+            temperature: 0.7,
+            maxTokens: 100
+        )
+
+        // Default prefs: redact
+        let redactOrch = ChatOrchestrator(
+            repository: repository,
+            aiService: StubAIService(events: [.completed]),
+            redactor: PrivacyRedactor(deviceNames: []),
+            privacyPreferences: .default
+        )
+        _ = try await redactOrch.sendUserMessage(
+            "Email me at user@example.com",
+            in: session.id,
+            using: model
+        )
+        let redactedFirst = repository.messages(for: session.id).first { $0.role == .user }?.content
+        try require(redactedFirst?.contains("[email]") == true, "default prefs should redact email")
+        try require(redactedFirst?.contains("user@example.com") == false, "raw email leaked despite redaction")
+
+        // Opted-out prefs: do not redact
+        let optedOut = PrivacyPreferences(
+            allowThirdPartyAPIs: true,
+            enableLocalNetworkDiscovery: false,
+            redactBeforeSending: false,
+            retainAuditLogsDays: 30
+        )
+        let rawOrch = ChatOrchestrator(
+            repository: repository,
+            aiService: StubAIService(events: [.completed]),
+            redactor: PrivacyRedactor(deviceNames: []),
+            privacyPreferences: optedOut
+        )
+        _ = try await rawOrch.sendUserMessage(
+            "Send to other@example.com",
+            in: session.id,
+            using: model
+        )
+        let rawMessages = repository.messages(for: session.id).filter { $0.role == .user }
+        // Find the most recent
+        let mostRecent = rawMessages.last?.content
+        try require(mostRecent?.contains("other@example.com") == true, "opted-out user should keep raw email in stored message")
+    }
+
+    // MARK: - Round 5: auto-titling
+
+    private static func validateSessionTitleDeriver() throws {
+        let deriver = SessionTitleDeriver(maxCharacters: 30, fallback: "New Chat")
+
+        try require(deriver.derive(from: "  ") == "New Chat", "whitespace should fall back")
+        try require(deriver.derive(from: "Hello") == "Hello", "short message should pass through")
+        try require(
+            deriver.derive(from: "Hello!") == "Hello",
+            "trailing punctuation should be trimmed"
+        )
+
+        let long = "Could you summarize this lengthy article for me please thanks a lot"
+        let derived = deriver.derive(from: long)
+        try require(derived.count <= 31, "title should be bounded — got \(derived.count) chars")
+        try require(derived.hasSuffix("…"), "long title should end with ellipsis")
+        try require(!derived.contains("  "), "title should collapse internal whitespace")
+    }
+
+    private static func validateAutoTitling() async throws {
+        let repository = InMemoryChatRepository()
+        let session = repository.createSession(title: "New Chat", modelConfigId: nil)
+        let model = ResolvedModelConfig(
+            id: UUID(),
+            provider: .openai,
+            name: "Test",
+            modelName: "gpt-test",
+            endpoint: URL(string: "https://example.com"),
+            apiKey: "sk-test",
+            temperature: 0.7,
+            maxTokens: 100
+        )
+        let orchestrator = ChatOrchestrator(
+            repository: repository,
+            aiService: StubAIService(events: [.token("ok"), .completed]),
+            redactor: PrivacyRedactor(deviceNames: [])
+        )
+
+        _ = try await orchestrator.sendUserMessage(
+            "What's the capital of France?",
+            in: session.id,
+            using: model
+        )
+
+        let after = repository.session(id: session.id)
+        try require(after?.title == "What's the capital of France", "auto-title should be derived from first user message")
+
+        // Second send shouldn't rename
+        _ = try await orchestrator.sendUserMessage(
+            "And the population?",
+            in: session.id,
+            using: model
+        )
+        try require(repository.session(id: session.id)?.title == "What's the capital of France", "subsequent sends must not rename")
+
+        // Session with deliberate user title shouldn't get auto-renamed
+        let custom = repository.createSession(title: "Travel planning", modelConfigId: nil)
+        _ = try await orchestrator.sendUserMessage("Hello", in: custom.id, using: model)
+        try require(repository.session(id: custom.id)?.title == "Travel planning", "user-set title should be preserved")
+    }
+
+    // MARK: - Round 7: regenerate
+
+    private static func validateRegenerate() async throws {
+        let repository = InMemoryChatRepository()
+        let session = repository.createSession(title: "Regenerate", modelConfigId: nil)
+        let model = ResolvedModelConfig(
+            id: UUID(),
+            provider: .openai,
+            name: "Test",
+            modelName: "gpt-test",
+            endpoint: URL(string: "https://example.com"),
+            apiKey: "sk-test",
+            temperature: 0.7,
+            maxTokens: 100
+        )
+        let firstOrch = ChatOrchestrator(
+            repository: repository,
+            aiService: StubAIService(events: [.token("first answer"), .completed])
+        )
+        _ = try await firstOrch.sendUserMessage("Tell me a joke", in: session.id, using: model)
+        try require(repository.messages(for: session.id).count == 2, "expected user + assistant after first send")
+
+        // Now regenerate with a different response
+        let secondOrch = ChatOrchestrator(
+            repository: repository,
+            aiService: StubAIService(events: [.token("second answer"), .completed])
+        )
+        let regenerated = try await secondOrch.regenerateLastAssistantMessage(in: session.id, using: model)
+        try require(regenerated == "second answer", "regenerate should produce new content")
+
+        let after = repository.messages(for: session.id)
+        try require(after.count == 2, "regenerate should keep one user + one assistant — got \(after.count)")
+        try require(after.last?.role == .assistant, "trailing message should be assistant")
+        try require(after.last?.content == "second answer", "trailing assistant should be the regenerated text")
+
+        // Regenerate with empty history should throw
+        let blank = repository.createSession(title: "Blank", modelConfigId: nil)
+        do {
+            _ = try await secondOrch.regenerateLastAssistantMessage(in: blank.id, using: model)
+            throw ValidationError("regenerate on empty session should throw")
+        } catch ChatOrchestratorError.noUserMessageToReplay {
+        }
+    }
+
+    // MARK: - Round 8: search + export
+
+    private static func validateMessageSearch() async throws {
+        let repository = InMemoryChatRepository()
+        let s1 = repository.createSession(title: "Trip planning", modelConfigId: nil)
+        let s2 = repository.createSession(title: "Recipes", modelConfigId: nil)
+        repository.appendMessage(ChatMessageDTO(role: .user, content: "Best ramen in Tokyo?"), to: s1.id)
+        repository.appendMessage(ChatMessageDTO(role: .assistant, content: "Tsuta and Afuri are great"), to: s1.id)
+        repository.appendMessage(ChatMessageDTO(role: .user, content: "Carbonara recipe please"), to: s2.id)
+
+        let hits = repository.search(query: "ramen", limit: 10)
+        try require(hits.count == 1, "expected one match for 'ramen' — got \(hits.count)")
+        try require(hits.first?.sessionId == s1.id, "ramen hit should be in trip session")
+
+        let caseInsensitive = repository.search(query: "RAMEN", limit: 10)
+        try require(caseInsensitive.count == 1, "search should be case-insensitive")
+
+        try require(repository.search(query: "  ", limit: 10).isEmpty, "empty query should return no hits")
+
+        // Soft-deleted session content should be excluded
+        repository.softDeleteSession(s1.id)
+        try require(repository.search(query: "ramen", limit: 10).isEmpty, "deleted sessions should be excluded from search")
+    }
+
+    private static func validateConversationExporter() throws {
+        let exporter = ConversationExporter()
+        let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let messages: [ChatMessageDTO] = [
+            ChatMessageDTO(role: .user, content: "Hi", timestamp: baseDate),
+            ChatMessageDTO(role: .assistant, content: "Hello there", timestamp: baseDate.addingTimeInterval(2)),
+            ChatMessageDTO(role: .tool, content: "{\"summary\":\"done\"}", timestamp: baseDate.addingTimeInterval(3))
+        ]
+        let usage = TokenUsage(promptTokens: 12, completionTokens: 34)
+        let md = exporter.export(sessionTitle: "Demo", messages: messages, tokenUsage: usage)
+
+        try require(md.contains("# Demo"), "export should have title heading")
+        try require(md.contains("## You"), "user header missing")
+        try require(md.contains("## Assistant"), "assistant header missing")
+        try require(md.contains("## Tool call"), "tool header missing")
+        try require(md.contains("```text"), "tool result should be fenced")
+        try require(md.contains("Hello there"), "assistant content should appear")
+        try require(md.contains("12 prompt"), "token usage should be included when provided")
+
+        // No usage path
+        let noUsage = exporter.export(sessionTitle: "Demo", messages: messages, tokenUsage: nil)
+        try require(!noUsage.contains("Token usage"), "no usage footer when not provided")
+    }
+
+    // MARK: - Round 6: token usage + cancellation
+
+    private static func validateTokenUsageTracking() async throws {
+        let repository = InMemoryChatRepository()
+        let session = repository.createSession(title: "Usage", modelConfigId: nil)
+        let model = ResolvedModelConfig(
+            id: UUID(),
+            provider: .openai,
+            name: "Test",
+            modelName: "gpt-test",
+            endpoint: URL(string: "https://example.com"),
+            apiKey: "sk-test",
+            temperature: 0.7,
+            maxTokens: 100
+        )
+        let orchestrator = ChatOrchestrator(
+            repository: repository,
+            aiService: StubAIService(events: [
+                .token("Hi"),
+                .usage(TokenUsage(promptTokens: 10, completionTokens: 5)),
+                .completed
+            ])
+        )
+        _ = try await orchestrator.sendUserMessage("Hello", in: session.id, using: model)
+
+        let after1 = repository.tokenUsage(for: session.id)
+        try require(after1.promptTokens == 10, "prompt tokens not recorded — got \(after1.promptTokens)")
+        try require(after1.completionTokens == 5, "completion tokens not recorded — got \(after1.completionTokens)")
+
+        // Second call should accumulate
+        let orchestrator2 = ChatOrchestrator(
+            repository: repository,
+            aiService: StubAIService(events: [
+                .usage(TokenUsage(promptTokens: 3, completionTokens: 2)),
+                .completed
+            ])
+        )
+        _ = try await orchestrator2.sendUserMessage("Again", in: session.id, using: model)
+        let after2 = repository.tokenUsage(for: session.id)
+        try require(after2.promptTokens == 13, "prompt tokens should accumulate — got \(after2.promptTokens)")
+        try require(after2.completionTokens == 7, "completion tokens should accumulate — got \(after2.completionTokens)")
+    }
+
+    private static func validateGenerationCancellation() async throws {
+        // Build an AI service that yields a token then awaits — the loop should detect the
+        // cancellation when checkCancellation() fires between events.
+        struct SlowService: AIService {
+            func streamChat(request: ChatRequest) -> AsyncThrowingStream<ChatStreamEvent, Error> {
+                AsyncThrowingStream { continuation in
+                    Task {
+                        continuation.yield(.token("partial"))
+                        // Sleep long enough for the outer task to cancel us
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        continuation.yield(.token("never"))
+                        continuation.finish()
+                    }
+                }
+            }
+        }
+
+        let repository = InMemoryChatRepository()
+        let session = repository.createSession(title: "Cancel", modelConfigId: nil)
+        let model = ResolvedModelConfig(
+            id: UUID(),
+            provider: .openai,
+            name: "Test",
+            modelName: "gpt-test",
+            endpoint: URL(string: "https://example.com"),
+            apiKey: "sk-test",
+            temperature: 0.7,
+            maxTokens: 100
+        )
+        let orchestrator = ChatOrchestrator(
+            repository: repository,
+            aiService: SlowService()
+        )
+
+        let tracker = ActiveGenerationTracker()
+        let task = Task {
+            do {
+                _ = try await orchestrator.sendUserMessage("Slow message", in: session.id, using: model)
+            } catch {
+                // expected
+            }
+        }
+        await tracker.register(task)
+        // Let it produce the first token
+        try await Task.sleep(nanoseconds: 50_000_000)
+        await tracker.cancel()
+        _ = await task.value
+
+        let stored = repository.messages(for: session.id)
+        try require(stored.contains { $0.role == .user }, "user message should still be persisted on cancel")
+        let assistantPartial = stored.first { $0.role == .assistant }?.content
+        try require(assistantPartial == "partial", "cancelled assistant message should keep partial content — got \(assistantPartial ?? "nil")")
+        let stillActive = await tracker.hasActiveTask
+        try require(!stillActive, "tracker should clear after cancel")
     }
 
     private static func awaitEvents(
