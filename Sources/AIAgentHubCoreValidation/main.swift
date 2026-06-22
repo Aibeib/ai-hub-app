@@ -13,6 +13,7 @@ struct ValidationRunner {
             try await validateModelConfigurationFlow()
             try await validateChatOrchestrator()
             try await validateToolCallingChatLoop()
+            try await validateDeviceCoordinator()
             print("AIAgentHubCoreValidation: all checks passed")
         } catch {
             fputs("AIAgentHubCoreValidation failed: \(error)\n", stderr)
@@ -266,6 +267,38 @@ struct ValidationRunner {
         try require(messages[1].role == .tool, "middle message should be tool result")
         try require(messages[1].content.contains("This is a long internal note"), "tool result should be persisted")
         try require(auditStore.entries.count == 1, "tool execution should be audited")
+    }
+
+    private static func validateDeviceCoordinator() async throws {
+        let repository = InMemoryBoundDeviceRepository()
+        let logStore = InMemoryRemoteCommandLogStore()
+        let discovered = DiscoveredDevice(name: "Work Mac", host: "192.168.1.10", port: 41731, kind: .mac)
+        let coordinator = DeviceCoordinator(
+            connectionService: MockDeviceConnectionService(devices: [discovered]),
+            repository: repository,
+            authorization: StaticRemoteCommandAuthorization(decision: .cancelled),
+            logStore: logStore
+        )
+
+        let manual = coordinator.addManualMac(name: "", host: "192.168.1.20")
+        try require(manual.name == "Manual Mac", "manual device should use fallback name")
+        try require(repository.all().count == 1, "manual device should be stored")
+
+        let paired = try await coordinator.pair(discovered)
+        try require(repository.all().map(\.id).contains(paired.id), "paired device should be stored")
+
+        let lowRisk = RemoteCommand(instruction: "Create a draft report", risk: .low)
+        let lowRiskResult = try await coordinator.send(lowRisk, to: paired)
+        try require(lowRiskResult.commandId == lowRisk.id, "low risk remote result mismatch")
+
+        let highRisk = RemoteCommand(instruction: "Run code", risk: .high)
+        do {
+            _ = try await coordinator.send(highRisk, to: paired)
+            throw ValidationError("cancelled high risk command did not throw")
+        } catch DeviceCoordinatorError.authorizationCancelled {
+            try require(logStore.entries.count == 2, "remote command logs missing")
+            try require(logStore.entries.last?.decision == .cancelled, "cancelled remote command not audited")
+        }
     }
 
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {

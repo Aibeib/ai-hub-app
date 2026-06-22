@@ -13,7 +13,17 @@ final class AppRuntime {
     let auditStore: SwiftDataAuditLogStore?
     let memoryAuditStore: InMemoryAuditLogStore?
     let toolRegistry: ToolRegistry
+    let deviceRepository: InMemoryBoundDeviceRepository
+    let remoteCommandLogStore: InMemoryRemoteCommandLogStore
+    let deviceCoordinator: DeviceCoordinator
+    let deviceConnectionService: MockDeviceConnectionService
     var modelConfigs: [ModelConfigRecord]
+    var boundDevices: [BoundDevice] {
+        deviceCoordinator.boundDevices()
+    }
+    var remoteCommandEntries: [RemoteCommandLogEntry] {
+        remoteCommandLogStore.entries
+    }
     var auditEntries: [ToolExecutionLogEntry] {
         auditStore?.entries ?? memoryAuditStore?.entries ?? []
     }
@@ -29,6 +39,19 @@ final class AppRuntime {
             tools: [TextSummaryTool()],
             auditStore: auditStore,
             authorization: StaticToolAuthorization(decision: .approved)
+        )
+        deviceRepository = InMemoryBoundDeviceRepository()
+        remoteCommandLogStore = InMemoryRemoteCommandLogStore()
+        deviceConnectionService = MockDeviceConnectionService(
+            devices: [
+                DiscoveredDevice(name: "Demo Mac", host: "192.168.1.20", port: 41_731, kind: .mac)
+            ]
+        )
+        deviceCoordinator = DeviceCoordinator(
+            connectionService: deviceConnectionService,
+            repository: deviceRepository,
+            authorization: StaticRemoteCommandAuthorization(decision: .approved),
+            logStore: remoteCommandLogStore
         )
         modelManager = ModelConfigurationManager(
             repository: modelRepository,
@@ -49,6 +72,19 @@ final class AppRuntime {
             tools: [TextSummaryTool()],
             auditStore: memoryAuditStore,
             authorization: StaticToolAuthorization(decision: .approved)
+        )
+        deviceRepository = InMemoryBoundDeviceRepository()
+        remoteCommandLogStore = InMemoryRemoteCommandLogStore()
+        deviceConnectionService = MockDeviceConnectionService(
+            devices: [
+                DiscoveredDevice(name: "Demo Mac", host: "192.168.1.20", port: 41_731, kind: .mac)
+            ]
+        )
+        deviceCoordinator = DeviceCoordinator(
+            connectionService: deviceConnectionService,
+            repository: deviceRepository,
+            authorization: StaticRemoteCommandAuthorization(decision: .approved),
+            logStore: remoteCommandLogStore
         )
         modelManager = ModelConfigurationManager(
             repository: modelRepository,
