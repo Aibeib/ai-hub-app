@@ -10,8 +10,15 @@ struct ChatHomeView: View {
     @State private var streamingText = ""
     @State private var streamingIsActive = false
     @State private var searchQuery = ""
-    @State private var exportMarkdown: String?
+    @State private var exportPayload: ConversationExportPayload?
+    @State private var lastFailedSend: FailedSend?
     @FocusState private var inputFocused: Bool
+
+    private struct FailedSend: Equatable {
+        let sessionId: UUID
+        let message: String
+        let errorDescription: String
+    }
 
     private var visibleSessions: [ChatSessionRecord] {
         let trimmed = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -42,21 +49,28 @@ struct ChatHomeView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(DS.Palette.surface)
-        .alert("Message failed", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(errorMessage ?? "")
-        }
-        .sheet(isPresented: Binding(
-            get: { exportMarkdown != nil },
-            set: { if !$0 { exportMarkdown = nil } }
-        )) {
-            if let markdown = exportMarkdown {
-                MarkdownExportView(markdown: markdown)
+        .alert(
+            "Message failed",
+            isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            ),
+            presenting: lastFailedSend
+        ) { failed in
+            Button("Retry") {
+                Task { await retryFailedSend(failed) }
             }
+            Button("Edit", role: .cancel) {
+                draft = failed.message
+            }
+            Button("Dismiss", role: .destructive) {
+                lastFailedSend = nil
+            }
+        } message: { failed in
+            Text(failed.errorDescription)
+        }
+        .sheet(item: $exportPayload) { payload in
+            ConversationExportView(payload: payload)
         }
         .toolbar(.hidden, for: .navigationBar)
     }
@@ -236,9 +250,18 @@ struct ChatHomeView: View {
                     .disabled(isSending || runtime.chatRepository.messages(for: session.id).isEmpty)
 
                     Button {
-                        exportMarkdown = runtime.exportMarkdown(for: session.id)
+                        if let md = runtime.exportConversation(for: session.id, format: .markdown) {
+                            exportPayload = ConversationExportPayload(format: .markdown, content: md, sessionTitle: session.title)
+                        }
                     } label: {
-                        Label("Export as Markdown", systemImage: "square.and.arrow.up")
+                        Label("Export as Markdown", systemImage: "doc.richtext")
+                    }
+                    Button {
+                        if let json = runtime.exportConversation(for: session.id, format: .json) {
+                            exportPayload = ConversationExportPayload(format: .json, content: json, sessionTitle: session.title)
+                        }
+                    } label: {
+                        Label("Export as JSON", systemImage: "curlybraces.square")
                     }
                 }
 
@@ -406,7 +429,35 @@ struct ChatHomeView: View {
                 streamingBuffer: buffer
             )
         } onError: { error in
-            draft = message
+            lastFailedSend = FailedSend(
+                sessionId: session.id,
+                message: message,
+                errorDescription: error.localizedDescription
+            )
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func retryFailedSend(_ failed: FailedSend) async {
+        guard let session = runtime.sessions.first(where: { $0.id == failed.sessionId }) else {
+            lastFailedSend = nil
+            return
+        }
+        lastFailedSend = nil
+        await runGeneration(in: session) { orchestrator, model, buffer in
+            try await orchestrator.sendUserMessage(
+                failed.message,
+                in: session.id,
+                using: model,
+                tools: runtime.toolRegistry.definitions,
+                streamingBuffer: buffer
+            )
+        } onError: { error in
+            lastFailedSend = FailedSend(
+                sessionId: failed.sessionId,
+                message: failed.message,
+                errorDescription: error.localizedDescription
+            )
             errorMessage = error.localizedDescription
         }
     }
@@ -787,29 +838,41 @@ private struct FirstMessageHint: View {
     }
 }
 
-// MARK: - Markdown export sheet
+// MARK: - Conversation export sheet
 
-private struct MarkdownExportView: View {
-    let markdown: String
+struct ConversationExportPayload: Identifiable {
+    let id = UUID()
+    let format: ConversationExportFormat
+    let content: String
+    let sessionTitle: String
+}
+
+private struct ConversationExportView: View {
+    let payload: ConversationExportPayload
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                Text(markdown)
+                Text(payload.content)
                     .font(DS.Typography.mono)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
                     .padding(DS.Space.md)
             }
             .background(DS.Palette.surface)
-            .navigationTitle("Export")
+            .navigationTitle("\(payload.format.displayName) export")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    ShareLink(item: markdown) {
+                    ShareLink(
+                        item: payload.content,
+                        preview: SharePreview(
+                            "\(payload.sessionTitle).\(payload.format.fileExtension)"
+                        )
+                    ) {
                         Label("Share", systemImage: "square.and.arrow.up")
                     }
                 }
