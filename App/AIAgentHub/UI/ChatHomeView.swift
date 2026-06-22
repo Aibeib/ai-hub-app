@@ -10,13 +10,20 @@ struct ChatHomeView: View {
     @State private var streamingText = ""
     @State private var streamingIsActive = false
     @State private var searchQuery = ""
+    @State private var exportMarkdown: String?
     @FocusState private var inputFocused: Bool
 
     private var visibleSessions: [ChatSessionRecord] {
         let trimmed = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let all = runtime.sessions.filter { !$0.isArchived }
         guard !trimmed.isEmpty else { return all }
-        return all.filter { $0.title.lowercased().contains(trimmed) }
+
+        // Match either the title or any message content.
+        let messageMatches = Set(runtime.searchMessages(trimmed, limit: 200).map(\.sessionId))
+        return all.filter { session in
+            session.title.lowercased().contains(trimmed)
+                || messageMatches.contains(session.id)
+        }
     }
 
     private var selectedSession: ChatSessionRecord? {
@@ -42,6 +49,14 @@ struct ChatHomeView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
+        }
+        .sheet(isPresented: Binding(
+            get: { exportMarkdown != nil },
+            set: { if !$0 { exportMarkdown = nil } }
+        )) {
+            if let markdown = exportMarkdown {
+                MarkdownExportView(markdown: markdown)
+            }
         }
         .toolbar(.hidden, for: .navigationBar)
     }
@@ -188,6 +203,14 @@ struct ChatHomeView: View {
                     Text(session.createdAt, format: .dateTime.month().day().hour().minute())
                         .font(DS.Typography.caption)
                         .foregroundStyle(DS.Palette.textTertiary)
+                    let usage = runtime.tokenUsage(for: session.id)
+                    if usage.promptTokens + usage.completionTokens > 0 {
+                        Text("·")
+                            .foregroundStyle(DS.Palette.textTertiary)
+                        Text("\(usage.promptTokens + usage.completionTokens) tokens")
+                            .font(DS.Typography.captionSmall.monospacedDigit())
+                            .foregroundStyle(DS.Palette.textTertiary)
+                    }
                 }
             }
 
@@ -201,6 +224,21 @@ struct ChatHomeView: View {
                         } label: {
                             Label(model.name, systemImage: model.id == session.modelConfigId ? "checkmark" : "")
                         }
+                    }
+                }
+
+                Section {
+                    Button {
+                        Task { await regenerate(in: session) }
+                    } label: {
+                        Label("Regenerate last reply", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(isSending || runtime.chatRepository.messages(for: session.id).isEmpty)
+
+                    Button {
+                        exportMarkdown = runtime.exportMarkdown(for: session.id)
+                    } label: {
+                        Label("Export as Markdown", systemImage: "square.and.arrow.up")
                     }
                 }
 
@@ -249,7 +287,12 @@ struct ChatHomeView: View {
                             .padding(.top, DS.Space.xxl)
                     } else {
                         ForEach(messages) { message in
-                            MessageBubble(message: message)
+                            MessageBubble(
+                                message: message,
+                                onDelete: {
+                                    runtime.deleteMessage(message.id, in: session.id)
+                                }
+                            )
                                 .id(message.id)
                         }
 
@@ -314,14 +357,16 @@ struct ChatHomeView: View {
                 )
 
                 Button {
-                    Task { await send(in: session) }
+                    if isSending {
+                        runtime.cancelActiveGeneration()
+                    } else {
+                        Task { await send(in: session) }
+                    }
                 } label: {
                     Group {
                         if isSending {
-                            ProgressView()
-                                .progressViewStyle(.circular)
-                                .tint(.white)
-                                .scaleEffect(0.8)
+                            Image(systemName: "stop.fill")
+                                .font(.system(size: 13, weight: .semibold))
                         } else {
                             Image(systemName: "arrow.up")
                                 .font(.system(size: 16, weight: .semibold))
@@ -331,12 +376,13 @@ struct ChatHomeView: View {
                     .frame(width: 40, height: 40)
                     .background(
                         Circle()
-                            .fill(canSend ? DS.Palette.textPrimary : DS.Palette.textTertiary)
+                            .fill(isSending ? DS.Palette.danger : (canSend ? DS.Palette.textPrimary : DS.Palette.textTertiary))
                     )
                 }
                 .buttonStyle(.plain)
-                .disabled(!canSend)
+                .disabled(!isSending && !canSend)
                 .animation(DS.Motion.easeOutFast, value: canSend)
+                .animation(DS.Motion.easeOutFast, value: isSending)
             }
             .padding(DS.Space.md)
             .background(DS.Palette.surface)
@@ -351,6 +397,39 @@ struct ChatHomeView: View {
         guard canSend else { return }
         let message = draft
         draft = ""
+        await runGeneration(in: session) { orchestrator, model, buffer in
+            try await orchestrator.sendUserMessage(
+                message,
+                in: session.id,
+                using: model,
+                tools: runtime.toolRegistry.definitions,
+                streamingBuffer: buffer
+            )
+        } onError: { error in
+            draft = message
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func regenerate(in session: ChatSessionRecord) async {
+        await runGeneration(in: session) { orchestrator, model, buffer in
+            try await orchestrator.regenerateLastAssistantMessage(
+                in: session.id,
+                using: model,
+                tools: runtime.toolRegistry.definitions,
+                streamingBuffer: buffer
+            )
+        } onError: { error in
+            // Don't refill draft for regenerate — there's no draft text to restore.
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func runGeneration(
+        in session: ChatSessionRecord,
+        run: @escaping (ChatOrchestrator, ResolvedModelConfig, StreamingResponseBuffer) async throws -> String,
+        onError: @escaping (Error) -> Void
+    ) async {
         isSending = true
         streamingText = ""
         streamingIsActive = true
@@ -361,36 +440,40 @@ struct ChatHomeView: View {
         }
 
         let buffer = StreamingResponseBuffer()
+        let observerStream = await buffer.observe()
         let observerTask = Task {
-            for await snapshot in await buffer.observe() {
+            for await snapshot in observerStream {
                 await MainActor.run {
                     streamingText = snapshot.text
                 }
             }
         }
 
-        do {
-            let resolvedModel = try resolveModel(for: session)
-            let aiService = try runtime.modelManager.makeService(for: resolvedModel)
-            let orchestrator = ChatOrchestrator(
-                repository: runtime.chatRepository,
-                aiService: aiService,
-                redactor: PrivacyRedactor(),
-                contextBuilder: ContextBuilder(),
-                toolRegistry: runtime.toolRegistry
-            )
-            try await orchestrator.sendUserMessage(
-                message,
-                in: session.id,
-                using: resolvedModel,
-                tools: runtime.toolRegistry.definitions,
-                streamingBuffer: buffer
-            )
-            runtime.refreshSessions()
-        } catch {
-            draft = message
-            errorMessage = error.localizedDescription
+        let generationTask = Task<Void, Never> {
+            do {
+                let resolvedModel = try resolveModel(for: session)
+                let aiService = try runtime.modelManager.makeService(for: resolvedModel)
+                let orchestrator = ChatOrchestrator(
+                    repository: runtime.chatRepository,
+                    aiService: aiService,
+                    redactor: PrivacyRedactor(),
+                    contextBuilder: ContextBuilder(),
+                    toolRegistry: runtime.toolRegistry,
+                    privacyPreferences: runtime.privacyPreferences
+                )
+                _ = try await run(orchestrator, resolvedModel, buffer)
+                await MainActor.run { runtime.refreshSessions() }
+            } catch is CancellationError {
+                // Generation was cancelled — partial message already persisted by the orchestrator.
+                await MainActor.run { runtime.refreshSessions() }
+            } catch {
+                await MainActor.run { onError(error) }
+            }
         }
+
+        await runtime.generationTracker.register(generationTask)
+        _ = await generationTask.value
+        await runtime.generationTracker.clear()
         observerTask.cancel()
     }
 
@@ -471,17 +554,37 @@ private struct SessionRow: View {
 
 private struct MessageBubble: View {
     let message: ChatMessageDTO
+    var onDelete: (() -> Void)? = nil
 
     var body: some View {
-        switch message.role {
-        case .user:
-            UserBubble(message: message)
-        case .assistant:
-            AssistantBubble(text: message.content, timestamp: message.timestamp)
-        case .tool:
-            ToolBubble(content: message.content)
-        case .system:
-            SystemBubble(content: message.content)
+        Group {
+            switch message.role {
+            case .user:
+                UserBubble(message: message)
+            case .assistant:
+                AssistantBubble(text: message.content, timestamp: message.timestamp)
+            case .tool:
+                ToolBubble(content: message.content)
+            case .system:
+                SystemBubble(content: message.content)
+            }
+        }
+        .contextMenu {
+            Button {
+                #if canImport(UIKit)
+                UIPasteboard.general.string = message.content
+                #elseif canImport(AppKit)
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(message.content, forType: .string)
+                #endif
+            } label: {
+                Label("Copy", systemImage: "doc.on.doc")
+            }
+            if let onDelete {
+                Button(role: .destructive, action: onDelete) {
+                    Label("Delete message", systemImage: "trash")
+                }
+            }
         }
     }
 }
@@ -681,5 +784,36 @@ private struct FirstMessageHint: View {
                 .lineSpacing(3)
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - Markdown export sheet
+
+private struct MarkdownExportView: View {
+    let markdown: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                Text(markdown)
+                    .font(DS.Typography.mono)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .padding(DS.Space.md)
+            }
+            .background(DS.Palette.surface)
+            .navigationTitle("Export")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    ShareLink(item: markdown) {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                    }
+                }
+            }
+        }
     }
 }

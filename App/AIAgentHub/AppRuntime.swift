@@ -18,6 +18,7 @@ final class AppRuntime: AppAuthorizationPresenter {
     let deviceCoordinator: DeviceCoordinator
     let deviceConnectionService: any DeviceConnectionService
     let privacyPreferencesRepository: any PrivacyPreferencesRepository
+    let generationTracker: ActiveGenerationTracker
     private let authorizationBroker: AppAuthorizationBroker
     var modelConfigs: [ModelConfigRecord]
     var sessions: [ChatSessionRecord]
@@ -58,6 +59,7 @@ final class AppRuntime: AppAuthorizationPresenter {
             logStore: remoteCommandLogStore
         )
         privacyPreferencesRepository = UserDefaultsPrivacyPreferencesRepository()
+        generationTracker = ActiveGenerationTracker()
         authorizationBroker.presenter = self
         modelManager = ModelConfigurationManager(
             repository: modelRepository,
@@ -97,6 +99,7 @@ final class AppRuntime: AppAuthorizationPresenter {
             logStore: remoteCommandLogStore
         )
         privacyPreferencesRepository = InMemoryPrivacyPreferencesRepository()
+        generationTracker = ActiveGenerationTracker()
         authorizationBroker.presenter = self
         modelManager = ModelConfigurationManager(
             repository: modelRepository,
@@ -156,6 +159,33 @@ final class AppRuntime: AppAuthorizationPresenter {
     func bindModelToSession(_ sessionId: UUID, modelId: UUID?) {
         chatRepository.setSessionModel(sessionId, modelConfigId: modelId)
         refreshSessions()
+    }
+
+    func cancelActiveGeneration() {
+        Task { await generationTracker.cancel() }
+    }
+
+    func deleteMessage(_ id: UUID, in sessionId: UUID) {
+        chatRepository.deleteMessage(id, in: sessionId)
+    }
+
+    func tokenUsage(for sessionId: UUID) -> TokenUsage {
+        chatRepository.tokenUsage(for: sessionId)
+    }
+
+    func searchMessages(_ query: String, limit: Int = 25) -> [ChatMessageSearchHit] {
+        chatRepository.search(query: query, limit: limit)
+    }
+
+    func exportMarkdown(for sessionId: UUID) -> String? {
+        guard let session = chatRepository.session(id: sessionId) else { return nil }
+        let messages = chatRepository.messages(for: sessionId)
+        let usage = chatRepository.tokenUsage(for: sessionId)
+        return ConversationExporter().export(
+            sessionTitle: session.title,
+            messages: messages,
+            tokenUsage: usage.promptTokens + usage.completionTokens > 0 ? usage : nil
+        )
     }
 
     @discardableResult
