@@ -58,6 +58,25 @@ public final class ChatOrchestrator: @unchecked Sendable {
         using model: ResolvedModelConfig,
         tools: [ToolDefinition] = []
     ) async throws -> String {
+        try await sendUserMessage(
+            text,
+            in: sessionId,
+            using: model,
+            tools: tools,
+            streamingBuffer: nil
+        )
+    }
+
+    /// Streaming variant: tokens are pushed into `streamingBuffer` as they arrive. The final
+    /// assistant message is still appended to the repository when the stream finishes.
+    @discardableResult
+    public func sendUserMessage(
+        _ text: String,
+        in sessionId: UUID,
+        using model: ResolvedModelConfig,
+        tools: [ToolDefinition] = [],
+        streamingBuffer: StreamingResponseBuffer?
+    ) async throws -> String {
         let redacted = redactor.redact(text)
         repository.appendMessage(
             ChatMessageDTO(role: .user, content: redacted),
@@ -74,35 +93,53 @@ public final class ChatOrchestrator: @unchecked Sendable {
         )
 
         var response = ""
-        for try await event in aiService.streamChat(request: request) {
-            switch event {
-            case let .token(token):
-                response += token
-            case let .toolCall(toolCall):
-                guard let toolRegistry else {
-                    continue
+        do {
+            for try await event in aiService.streamChat(request: request) {
+                switch event {
+                case let .token(token):
+                    response += token
+                    if let streamingBuffer {
+                        await streamingBuffer.append(token: token)
+                    }
+                case let .toolCall(toolCall):
+                    if let streamingBuffer {
+                        await streamingBuffer.record(toolCall: toolCall)
+                    }
+                    guard let toolRegistry else {
+                        continue
+                    }
+                    let arguments = try ToolArgumentDecoder.decode(toolCall.argumentsJSON)
+                    let result = try await toolRegistry.execute(
+                        toolName: toolCall.name,
+                        arguments: arguments,
+                        sessionId: sessionId
+                    )
+                    repository.appendMessage(
+                        ChatMessageDTO(role: .tool, content: result.displayText),
+                        to: sessionId
+                    )
+                case let .usage(usage):
+                    if let streamingBuffer {
+                        await streamingBuffer.record(usage: usage)
+                    }
+                case .completed:
+                    break
                 }
-                let arguments = try ToolArgumentDecoder.decode(toolCall.argumentsJSON)
-                let result = try await toolRegistry.execute(
-                    toolName: toolCall.name,
-                    arguments: arguments,
-                    sessionId: sessionId
-                )
-                repository.appendMessage(
-                    ChatMessageDTO(role: .tool, content: result.displayText),
-                    to: sessionId
-                )
-            case .usage:
-                continue
-            case .completed:
-                break
             }
+        } catch {
+            if let streamingBuffer {
+                await streamingBuffer.fail(error.localizedDescription)
+            }
+            throw error
         }
 
         repository.appendMessage(
             ChatMessageDTO(role: .assistant, content: response),
             to: sessionId
         )
+        if let streamingBuffer {
+            await streamingBuffer.complete()
+        }
         return response
     }
 }
