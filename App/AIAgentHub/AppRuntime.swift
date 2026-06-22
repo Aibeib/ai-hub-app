@@ -17,8 +17,11 @@ final class AppRuntime: AppAuthorizationPresenter {
     let remoteCommandLogStore: InMemoryRemoteCommandLogStore
     let deviceCoordinator: DeviceCoordinator
     let deviceConnectionService: any DeviceConnectionService
+    let privacyPreferencesRepository: any PrivacyPreferencesRepository
     private let authorizationBroker: AppAuthorizationBroker
     var modelConfigs: [ModelConfigRecord]
+    var sessions: [ChatSessionRecord]
+    var privacyPreferences: PrivacyPreferences
     var pendingAuthorization: AuthorizationRequest?
     var boundDevices: [BoundDevice] {
         deviceCoordinator.boundDevices()
@@ -54,13 +57,17 @@ final class AppRuntime: AppAuthorizationPresenter {
             authorization: authorizationBroker,
             logStore: remoteCommandLogStore
         )
+        privacyPreferencesRepository = UserDefaultsPrivacyPreferencesRepository()
         authorizationBroker.presenter = self
         modelManager = ModelConfigurationManager(
             repository: modelRepository,
             secretStore: secretStore
         )
         modelConfigs = []
+        sessions = []
+        privacyPreferences = privacyPreferencesRepository.load()
         seedDefaultsIfNeeded()
+        refreshSessions()
     }
 
     init(secretStore: any SecretStore = KeyValueSecretStore()) {
@@ -89,17 +96,66 @@ final class AppRuntime: AppAuthorizationPresenter {
             authorization: authorizationBroker,
             logStore: remoteCommandLogStore
         )
+        privacyPreferencesRepository = InMemoryPrivacyPreferencesRepository()
         authorizationBroker.presenter = self
         modelManager = ModelConfigurationManager(
             repository: modelRepository,
             secretStore: secretStore
         )
         modelConfigs = []
+        sessions = []
+        privacyPreferences = privacyPreferencesRepository.load()
         seedDefaultsIfNeeded()
+        refreshSessions()
     }
 
     func refreshModels() {
         modelConfigs = modelRepository.all(includeDisabled: true)
+    }
+
+    func refreshSessions() {
+        sessions = chatRepository.sessions(includeDeleted: false)
+    }
+
+    func updatePrivacyPreferences(_ preferences: PrivacyPreferences) {
+        privacyPreferences = preferences
+        privacyPreferencesRepository.save(preferences)
+    }
+
+    @discardableResult
+    func createSession(title: String = "New Chat") -> ChatSessionRecord {
+        let session = chatRepository.createSession(
+            title: title,
+            modelConfigId: modelManager.defaultModel()?.id
+        )
+        refreshSessions()
+        return session
+    }
+
+    func renameSession(_ id: UUID, title: String) {
+        chatRepository.renameSession(id, title: title)
+        refreshSessions()
+    }
+
+    func togglePin(_ id: UUID) {
+        guard let session = chatRepository.session(id: id) else { return }
+        chatRepository.setSessionPinned(id, isPinned: !session.isPinned)
+        refreshSessions()
+    }
+
+    func deleteSession(_ id: UUID) {
+        chatRepository.softDeleteSession(id)
+        refreshSessions()
+    }
+
+    func archiveSession(_ id: UUID) {
+        chatRepository.archiveSession(id)
+        refreshSessions()
+    }
+
+    func bindModelToSession(_ sessionId: UUID, modelId: UUID?) {
+        chatRepository.setSessionModel(sessionId, modelConfigId: modelId)
+        refreshSessions()
     }
 
     @discardableResult

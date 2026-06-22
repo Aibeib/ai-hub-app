@@ -7,53 +7,152 @@ struct ModelConfigListView: View {
     @State private var editingConfig: ModelConfigRecord?
     @State private var errorMessage: String?
 
+    private var enabledModels: [ModelConfigRecord] {
+        runtime.modelConfigs.filter(\.isEnabled)
+    }
+
+    private var disabledModels: [ModelConfigRecord] {
+        runtime.modelConfigs.filter { !$0.isEnabled }
+    }
+
     var body: some View {
-        List {
-            Section("Third-party models") {
-                ForEach(runtime.modelConfigs) { config in
-                    Button {
-                        editingConfig = config
-                        isShowingEditor = true
-                    } label: {
-                        ModelConfigRow(config: config)
-                    }
-                    .buttonStyle(.plain)
+        ScrollView {
+            VStack(alignment: .leading, spacing: DS.Space.lg) {
+                // Header
+                VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                    Text("Models")
+                        .font(DS.Typography.display)
+                        .foregroundStyle(DS.Palette.textPrimary)
+                    Text("Choose which AI providers to use, and configure your API keys for each one.")
+                        .font(DS.Typography.body)
+                        .foregroundStyle(DS.Palette.textSecondary)
+                        .lineSpacing(3)
                 }
-                .onDelete { offsets in
-                    for index in offsets {
-                        let config = runtime.modelConfigs[index]
-                        do {
-                            try runtime.deleteModel(config.id)
-                        } catch {
-                            errorMessage = error.localizedDescription
+                .padding(.horizontal, DS.Space.xl)
+                .padding(.top, DS.Space.lg)
+
+                DSSectionHeader("Active The Third-Party Providers") {
+                    AnyView(
+                        Button {
+                            editingConfig = nil
+                            isShowingEditor = true
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(DS.Palette.accent)
+                        }
+                        .buttonStyle(.plain)
+                    )
+                }
+
+                if enabledModels.isEmpty {
+                    DSEmptyState(
+                        icon: "cpu",
+                        title: "No models configured",
+                        message: "Add a provider like OpenAI, DeepSeek, or Claude to get started.",
+                        action: ("Add model", {
+                            editingConfig = nil
+                            isShowingEditor = true
+                        })
+                    )
+                    .padding(.horizontal, DS.Space.xl)
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: DS.Space.lg)], spacing: DS.Space.lg) {
+                        ForEach(enabledModels) { config in
+                            ModelCard(
+                                config: config,
+                                isDefault: config.isDefault,
+                                onEdit: {
+                                    editingConfig = config
+                                    isShowingEditor = true
+                                },
+                                onDelete: {
+                                    do {
+                                        try runtime.deleteModel(config.id)
+                                    } catch {
+                                        errorMessage = error.localizedDescription
+                                    }
+                                }
+                            )
                         }
                     }
+                    .padding(.horizontal, DS.Space.xl)
                 }
-            }
 
-            Section("On-device AI") {
-                HStack {
-                    Label("Apple Foundation Models", systemImage: "apple.logo")
-                    Spacer()
-                    Text(AppleFoundationAvailability.isAvailable ? "Available" : "Requires iOS 26+")
-                        .foregroundStyle(.secondary)
+                if !disabledModels.isEmpty {
+                    DSSectionHeader("Inactive")
+
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: DS.Space.lg)], spacing: DS.Space.lg) {
+                        ForEach(disabledModels) { config in
+                            ModelCard(
+                                config: config,
+                                isDefault: false,
+                                onEdit: {
+                                    editingConfig = config
+                                    isShowingEditor = true
+                                },
+                                onDelete: {
+                                    do {
+                                        try runtime.deleteModel(config.id)
+                                    } catch {
+                                        errorMessage = error.localizedDescription
+                                    }
+                                }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, DS.Space.xl)
                 }
-            }
 
-            Section("Security") {
-                Text("API keys are stored in Keychain by the platform adapter. They are never stored in SwiftData model rows.")
-                    .foregroundStyle(.secondary)
+                // On-device section
+                DSSectionHeader("On-Device")
+
+                GroupBox {
+                    HStack(spacing: DS.Space.md) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(DS.Palette.textTertiary.opacity(0.12))
+                                .frame(width: 44, height: 44)
+                            Image(systemName: "apple.logo")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundStyle(DS.Palette.textSecondary)
+                        }
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Apple Foundation Models")
+                                .font(DS.Typography.headline)
+                                .foregroundStyle(DS.Palette.textPrimary)
+                            Text(AppleFoundationAvailability.isAvailable ? "Available on this device" : "Requires iOS 26+")
+                                .font(DS.Typography.caption)
+                                .foregroundStyle(AppleFoundationAvailability.isAvailable ? DS.Palette.positive : DS.Palette.textTertiary)
+                        }
+
+                        Spacer()
+
+                        DSStatusDot(status: AppleFoundationAvailability.isAvailable ? .live : .offline, animated: AppleFoundationAvailability.isAvailable)
+                    }
+                    .padding(DS.Space.md)
+                }
+                .groupBoxStyle(.dsCard)
+                .padding(.horizontal, DS.Space.xl)
+
+                // Security notice
+                Section {
+                    HStack(spacing: DS.Space.sm) {
+                        Image(systemName: "key.horizontal")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(DS.Palette.accent)
+                        Text("API keys are stored in the system Keychain and are never persisted in plaintext.")
+                            .font(DS.Typography.caption)
+                            .foregroundStyle(DS.Palette.textSecondary)
+                    }
+                    .padding(DS.Space.md)
+                }
+                .padding(.horizontal, DS.Space.xl)
+                .padding(.bottom, DS.Space.xxl)
             }
         }
-        .navigationTitle("Models")
-        .toolbar {
-            Button {
-                editingConfig = nil
-                isShowingEditor = true
-            } label: {
-                Label("Add Model", systemImage: "plus")
-            }
-        }
+        .background(DS.Palette.surface)
         .sheet(isPresented: $isShowingEditor) {
             ModelConfigEditorView(config: editingConfig) { draft in
                 do {
@@ -75,34 +174,109 @@ struct ModelConfigListView: View {
     }
 }
 
-private struct ModelConfigRow: View {
+// MARK: - Model card
+
+private struct ModelCard: View {
     let config: ModelConfigRecord
+    let isDefault: Bool
+    let onEdit: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(config.name)
-                    .font(.headline)
-                if config.isDefault {
-                    Text("Default")
-                        .font(.caption)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(.blue.opacity(0.12))
-                        .clipShape(Capsule())
+        VStack(alignment: .leading, spacing: DS.Space.sm) {
+            HStack(alignment: .top) {
+                DSProviderGlyph(provider: config.provider)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(config.name)
+                        .font(DS.Typography.headline)
+                        .foregroundStyle(DS.Palette.textPrimary)
+                    Text(config.provider.displayName)
+                        .font(DS.Typography.caption)
+                        .foregroundStyle(DS.Palette.textSecondary)
                 }
-                if !config.isEnabled {
-                    Text("Disabled")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: DS.Space.xxs) {
+                    if isDefault {
+                        DSBadge(text: "Default", tint: DS.Palette.accent)
+                    }
+                    if !config.isEnabled {
+                        DSBadge(text: "Disabled", tint: DS.Palette.textTertiary)
+                    }
                 }
             }
-            Text("\(config.provider.displayName) · \(config.modelName)")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+
+            Text(config.modelName)
+                .font(DS.Typography.monoSmall)
+                .foregroundStyle(DS.Palette.textTertiary)
+
+            HStack(spacing: DS.Space.lg) {
+                LabeledBadge(label: "Temp", value: String(format: "%.1f", config.temperature))
+                LabeledBadge(label: "Tokens", value: "\(config.maxTokens)")
+            }
+
+            Divider().overlay(DS.Palette.separator)
+
+            HStack(spacing: DS.Space.sm) {
+                Button(action: onEdit) {
+                    Label("Edit", systemImage: "pencil")
+                        .font(DS.Typography.caption.weight(.medium))
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Button(role: .destructive, action: onDelete) {
+                    Label("Delete", systemImage: "trash")
+                        .font(DS.Typography.caption.weight(.medium))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(DS.Space.md)
+        .dsCard()
+    }
+}
+
+private struct LabeledBadge: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(label)
+                .font(DS.Typography.captionSmall)
+                .foregroundStyle(DS.Palette.textTertiary)
+            Text(value)
+                .font(DS.Typography.monoSmall)
+                .foregroundStyle(DS.Palette.textSecondary)
         }
     }
 }
+
+// MARK: - GroupBox custom style
+
+extension GroupBoxStyle where Self == DSCardGroupBoxStyle {
+    static var dsCard: DSCardGroupBoxStyle { DSCardGroupBoxStyle() }
+}
+
+struct DSCardGroupBoxStyle: GroupBoxStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            configuration.label
+                .font(DS.Typography.caption)
+                .foregroundStyle(DS.Palette.textTertiary)
+                .padding(.bottom, DS.Space.xs)
+            configuration.content
+        }
+        .padding(DS.Space.md)
+        .dsCard()
+    }
+}
+
+// MARK: - Editor (reused from original, lightly styled)
 
 private struct ModelConfigEditorView: View {
     @Environment(\.dismiss) private var dismiss
@@ -141,7 +315,8 @@ private struct ModelConfigEditorView: View {
                     TextField("Display name", text: $name)
                     Picker("Provider", selection: $provider) {
                         ForEach(ModelProvider.allCases.filter { $0 != .apple }, id: \.self) { provider in
-                            Text(provider.displayName).tag(provider)
+                            Label(provider.displayName, systemImage: providerIcon(for: provider))
+                                .tag(provider)
                         }
                     }
                     TextField("Model name", text: $modelName)
@@ -193,6 +368,15 @@ private struct ModelConfigEditorView: View {
                     }
                 }
             }
+        }
+    }
+
+    private func providerIcon(for provider: ModelProvider) -> String {
+        switch provider {
+        case .openai: "circle.grid.3x3"
+        case .deepseek: "circle.hexagonpath"
+        case .anthropic: "sparkle"
+        case .apple: "apple.logo"
         }
     }
 }
