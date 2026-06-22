@@ -15,6 +15,7 @@ struct ValidationRunner {
             try await validateToolCallingChatLoop()
             try await validateDeviceCoordinator()
             try await validateSandboxExecutor()
+            try validateEncryptedTransport()
             print("AIAgentHubCoreValidation: all checks passed")
         } catch {
             fputs("AIAgentHubCoreValidation failed: \(error)\n", stderr)
@@ -317,6 +318,24 @@ struct ValidationRunner {
         let result = try await MockSandboxExecutor().execute(command)
         try require(result.commandId == command.id, "sandbox executor command id mismatch")
         try require(result.output.contains("Create a sandbox draft"), "sandbox executor output mismatch")
+    }
+
+    private static func validateEncryptedTransport() throws {
+        let key = SymmetricTransportKey(rawValue: Data(repeating: 7, count: 32))
+        let wrongKey = SymmetricTransportKey(rawValue: Data(repeating: 9, count: 32))
+        let plaintext = Data("remote command payload".utf8)
+
+        let envelope = try AESGCMTransportCipher().seal(plaintext, using: key)
+        try require(envelope.ciphertext != plaintext, "ciphertext should not equal plaintext")
+
+        let opened = try AESGCMTransportCipher().open(envelope, using: key)
+        try require(opened == plaintext, "decrypted payload mismatch")
+
+        do {
+            _ = try AESGCMTransportCipher().open(envelope, using: wrongKey)
+            throw ValidationError("wrong key should not decrypt payload")
+        } catch TransportCipherError.authenticationFailed {
+        }
     }
 
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
