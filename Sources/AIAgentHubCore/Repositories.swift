@@ -33,6 +33,9 @@ public protocol ChatRepository: Sendable {
     func renameSession(_ sessionId: UUID, title: String)
     func archiveSession(_ sessionId: UUID)
     func softDeleteSession(_ sessionId: UUID)
+    func restoreSession(_ sessionId: UUID)
+    func setSessionModel(_ sessionId: UUID, modelConfigId: UUID?)
+    func setSessionPinned(_ sessionId: UUID, isPinned: Bool)
     func purgeExpiredDeletedSessions()
     func clearAllSessions()
 }
@@ -132,6 +135,40 @@ public final class InMemoryChatRepository: ChatRepository, @unchecked Sendable {
             }
             session.isDeleted = true
             session.deleteExpireAt = clock.now.addingTimeInterval(7 * 24 * 60 * 60)
+            session.updatedAt = clock.now
+            sessionStorage[sessionId] = session
+        }
+    }
+
+    public func restoreSession(_ sessionId: UUID) {
+        lock.withLock {
+            guard var session = sessionStorage[sessionId] else {
+                return
+            }
+            session.isDeleted = false
+            session.deleteExpireAt = nil
+            session.updatedAt = clock.now
+            sessionStorage[sessionId] = session
+        }
+    }
+
+    public func setSessionModel(_ sessionId: UUID, modelConfigId: UUID?) {
+        lock.withLock {
+            guard var session = sessionStorage[sessionId] else {
+                return
+            }
+            session.modelConfigId = modelConfigId
+            session.updatedAt = clock.now
+            sessionStorage[sessionId] = session
+        }
+    }
+
+    public func setSessionPinned(_ sessionId: UUID, isPinned: Bool) {
+        lock.withLock {
+            guard var session = sessionStorage[sessionId] else {
+                return
+            }
+            session.isPinned = isPinned
             session.updatedAt = clock.now
             sessionStorage[sessionId] = session
         }

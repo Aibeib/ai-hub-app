@@ -147,6 +147,34 @@ final class SwiftDataChatRepository: ChatRepository, @unchecked Sendable {
         save()
     }
 
+    func restoreSession(_ sessionId: UUID) {
+        guard let session = fetchSession(id: sessionId) else {
+            return
+        }
+        session.isDeleted = false
+        session.deleteExpireAt = nil
+        session.updatedAt = clock.now
+        save()
+    }
+
+    func setSessionModel(_ sessionId: UUID, modelConfigId: UUID?) {
+        guard let session = fetchSession(id: sessionId) else {
+            return
+        }
+        session.modelConfigId = modelConfigId
+        session.updatedAt = clock.now
+        save()
+    }
+
+    func setSessionPinned(_ sessionId: UUID, isPinned: Bool) {
+        guard let session = fetchSession(id: sessionId) else {
+            return
+        }
+        session.isPinned = isPinned
+        session.updatedAt = clock.now
+        save()
+    }
+
     func purgeExpiredDeletedSessions() {
         for session in fetchAllSessions() {
             if session.isDeleted, let deleteExpireAt = session.deleteExpireAt, deleteExpireAt <= clock.now {

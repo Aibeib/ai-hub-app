@@ -113,9 +113,22 @@ public final class ModelConfigurationManager: @unchecked Sendable {
         return resolved
     }
 
+    /// Resolve a specific model record (e.g., a per-session pinned model).
+    public func resolve(record: ModelConfigRecord) throws -> ResolvedModelConfig {
+        let resolved = try resolver.resolve(record)
+        if record.provider != .apple, resolved.apiKey?.isEmpty ?? true {
+            throw ModelConfigurationError.missingAPIKey(record.id)
+        }
+        return resolved
+    }
+
     public func makeServiceForDefault(client: any AIHTTPClient = URLSessionAIHTTPClient()) throws -> any AIService {
         let resolved = try resolveDefaultModel()
         return AIServiceFactory.make(provider: resolved.provider, client: client)
+    }
+
+    public func makeService(for resolved: ResolvedModelConfig, client: any AIHTTPClient = URLSessionAIHTTPClient()) throws -> any AIService {
+        AIServiceFactory.make(provider: resolved.provider, client: client)
     }
 
     public func deleteModel(_ id: UUID) throws {
