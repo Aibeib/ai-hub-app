@@ -31,6 +31,7 @@
 		A11000000000000000000009 /* DeviceConnections.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000009 /* DeviceConnections.swift */; };
 		A11000000000000000000010 /* KeychainSecretStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000010 /* KeychainSecretStore.swift */; };
 		A11000000000000000000011 /* ModelConfigurationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000011 /* ModelConfigurationManager.swift */; };
+		A11000000000000000000012 /* SandboxExecution.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000012 /* SandboxExecution.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -80,6 +81,7 @@
 		A21000000000000000000009 /* DeviceConnections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceConnections.swift; sourceTree = "<group>"; };
 		A21000000000000000000010 /* KeychainSecretStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainSecretStore.swift; sourceTree = "<group>"; };
 		A21000000000000000000011 /* ModelConfigurationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelConfigurationManager.swift; sourceTree = "<group>"; };
+		A21000000000000000000012 /* SandboxExecution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SandboxExecution.swift; sourceTree = "<group>"; };
 		A30000000000000000000001 /* AIAgentHub.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AIAgentHub.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A30000000000000000000002 /* AIAgentHubCore.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = AIAgentHubCore.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -160,6 +162,7 @@
 				A21000000000000000000009 /* DeviceConnections.swift */,
 				A21000000000000000000010 /* KeychainSecretStore.swift */,
 				A21000000000000000000011 /* ModelConfigurationManager.swift */,
+				A21000000000000000000012 /* SandboxExecution.swift */,
 			);
 			path = AIAgentHubCore;
 			sourceTree = "<group>";
@@ -281,6 +284,7 @@
 				A11000000000000000000009 /* DeviceConnections.swift in Sources */,
 				A11000000000000000000010 /* KeychainSecretStore.swift in Sources */,
 				A11000000000000000000011 /* ModelConfigurationManager.swift in Sources */,
+				A11000000000000000000012 /* SandboxExecution.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

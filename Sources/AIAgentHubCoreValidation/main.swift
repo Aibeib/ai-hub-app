@@ -14,6 +14,7 @@ struct ValidationRunner {
             try await validateChatOrchestrator()
             try await validateToolCallingChatLoop()
             try await validateDeviceCoordinator()
+            try await validateSandboxExecutor()
             print("AIAgentHubCoreValidation: all checks passed")
         } catch {
             fputs("AIAgentHubCoreValidation failed: \(error)\n", stderr)
@@ -299,6 +300,17 @@ struct ValidationRunner {
             try require(logStore.entries.count == 2, "remote command logs missing")
             try require(logStore.entries.last?.decision == .cancelled, "cancelled remote command not audited")
         }
+    }
+
+    private static func validateSandboxExecutor() async throws {
+        let command = SandboxCommand(
+            instruction: "Create a sandbox draft",
+            risk: .low,
+            timeoutSeconds: 30
+        )
+        let result = try await MockSandboxExecutor().execute(command)
+        try require(result.commandId == command.id, "sandbox executor command id mismatch")
+        try require(result.output.contains("Create a sandbox draft"), "sandbox executor output mismatch")
     }
 
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {

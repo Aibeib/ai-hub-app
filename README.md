@@ -9,6 +9,7 @@ AI Agent Hub is an iOS-first AI assistant MVP based on `AI Agent Hub——跨设
 - SwiftData model definitions for app persistence.
 - Keychain adapter for API key storage.
 - Mock cross-device service for the MVP; real Bonjour pairing and Mac companion execution are deferred to the next phase.
+- Mac companion source skeleton under `App/AIAgentHubMac` with an explicit receiving toggle and sandbox-safe executor boundary.
 
 ## Requirements
 
@@ -40,6 +41,6 @@ This validates:
 - Create a full Xcode app target once Xcode is installed or selected with `xcode-select`.
 - Replace demo `StubAIService` in `ChatHomeView` with configured provider service resolution.
 - Implement SwiftData-backed repositories for runtime app state.
-- Add real Bonjour discovery and Mac companion app.
+- Promote `App/AIAgentHubMac` into a full macOS target once full Xcode validation is available.
+- Replace mock remote command sending with encrypted NWConnection transport.
 - Add UI tests in Xcode after the app target is buildable.
-
