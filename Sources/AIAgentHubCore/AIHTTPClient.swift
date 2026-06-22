@@ -201,7 +201,27 @@ private struct OpenAICompatibleRequestBody: Encodable {
     var temperature: Double
     var maxTokens: Int
     var stream: Bool
+    var streamOptions: StreamOptions
     var tools: [Tool]
+
+    init(
+        model: String,
+        messages: [Message],
+        temperature: Double,
+        maxTokens: Int,
+        stream: Bool,
+        tools: [Tool]
+    ) {
+        self.model = model
+        self.messages = messages
+        self.temperature = temperature
+        self.maxTokens = maxTokens
+        self.stream = stream
+        // Opt into the OpenAI usage chunk; DeepSeek mirrors the same field and is harmless
+        // for other compatible providers — unknown fields are ignored on the server side.
+        self.streamOptions = StreamOptions(includeUsage: true)
+        self.tools = tools
+    }
 
     enum CodingKeys: String, CodingKey {
         case model
@@ -209,7 +229,16 @@ private struct OpenAICompatibleRequestBody: Encodable {
         case temperature
         case maxTokens = "max_tokens"
         case stream
+        case streamOptions = "stream_options"
         case tools
+    }
+
+    struct StreamOptions: Encodable {
+        var includeUsage: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case includeUsage = "include_usage"
+        }
     }
 
     struct Message: Encodable {

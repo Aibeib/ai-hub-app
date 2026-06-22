@@ -24,34 +24,50 @@ public struct OpenAICompatibleSSEParser: ChatStreamParser {
     private func parseEventBlock(_ block: String) -> [ChatStreamEvent] {
         block
             .split(separator: "\n")
-            .compactMap { line -> ChatStreamEvent? in
+            .flatMap { line -> [ChatStreamEvent] in
                 guard line.hasPrefix("data:") else {
-                    return nil
+                    return []
                 }
                 let payload = line.dropFirst("data:".count).trimmingCharacters(in: .whitespaces)
                 if payload == "[DONE]" {
-                    return .completed
+                    return [.completed]
                 }
                 guard let data = payload.data(using: .utf8),
                       let envelope = try? JSONDecoder().decode(OpenAIStreamEnvelope.self, from: data) else {
-                    return nil
+                    return []
                 }
 
+                var events: [ChatStreamEvent] = []
                 if let content = envelope.choices.first?.delta.content, !content.isEmpty {
-                    return .token(content)
+                    events.append(.token(content))
                 }
 
                 if let call = envelope.choices.first?.delta.toolCalls?.first {
-                    return .toolCall(
-                        ToolCallRequest(
-                            id: call.id ?? "",
-                            name: call.function?.name ?? "",
-                            argumentsJSON: call.function?.arguments ?? ""
+                    events.append(
+                        .toolCall(
+                            ToolCallRequest(
+                                id: call.id ?? "",
+                                name: call.function?.name ?? "",
+                                argumentsJSON: call.function?.arguments ?? ""
+                            )
                         )
                     )
                 }
 
-                return nil
+                // OpenAI ships usage in the final chunk (with `stream_options: { include_usage: true }`)
+                // as a top-level `usage` field — choices array is empty at that point.
+                if let usage = envelope.usage {
+                    events.append(
+                        .usage(
+                            TokenUsage(
+                                promptTokens: usage.promptTokens ?? 0,
+                                completionTokens: usage.completionTokens ?? 0
+                            )
+                        )
+                    )
+                }
+
+                return events
             }
     }
 }
@@ -64,44 +80,92 @@ public struct ClaudeSSEParser: ChatStreamParser {
             throw SSEParserError.invalidUTF8
         }
 
-        return text
-            .components(separatedBy: "\n\n")
-            .compactMap(parseEventBlock)
+        // Claude folds prompt token count into message_start, then completion tokens land
+        // in message_delta. We assemble them into a single TokenUsage and emit when both are
+        // known (or one is known at message_stop, defaulting the missing side to 0).
+        var promptTokens = 0
+        var completionTokens = 0
+        var sawUsage = false
+        var events: [ChatStreamEvent] = []
+
+        for block in text.components(separatedBy: "\n\n") {
+            for event in parseEventBlock(block, prompt: &promptTokens, completion: &completionTokens, sawUsage: &sawUsage) {
+                events.append(event)
+            }
+        }
+
+        if sawUsage {
+            // Emit a final usage summary so the orchestrator records it once per stream rather
+            // than dribbling partial deltas. Insert just before the final .completed event if any.
+            let summary = ChatStreamEvent.usage(
+                TokenUsage(promptTokens: promptTokens, completionTokens: completionTokens)
+            )
+            if let idx = events.lastIndex(of: .completed) {
+                events.insert(summary, at: idx)
+            } else {
+                events.append(summary)
+            }
+        }
+
+        return events
     }
 
-    private func parseEventBlock(_ block: String) -> ChatStreamEvent? {
+    private func parseEventBlock(
+        _ block: String,
+        prompt: inout Int,
+        completion: inout Int,
+        sawUsage: inout Bool
+    ) -> [ChatStreamEvent] {
         let dataLine = block
             .split(separator: "\n")
             .first { $0.hasPrefix("data:") }
 
         guard let dataLine else {
-            return nil
+            return []
         }
 
         let payload = dataLine.dropFirst("data:".count).trimmingCharacters(in: .whitespaces)
         guard let data = payload.data(using: .utf8),
               let envelope = try? JSONDecoder().decode(ClaudeStreamEnvelope.self, from: data) else {
-            return nil
+            return []
         }
 
         if envelope.type == "message_stop" {
-            return .completed
+            return [.completed]
+        }
+
+        if let usage = envelope.message?.usage {
+            sawUsage = true
+            prompt = usage.inputTokens ?? prompt
+            // message_start sometimes carries an initial output_tokens count too.
+            completion = usage.outputTokens ?? completion
+        }
+
+        if let usage = envelope.usage {
+            sawUsage = true
+            if let output = usage.outputTokens {
+                completion = output
+            }
+            if let input = usage.inputTokens {
+                prompt = input
+            }
         }
 
         if let toolUse = envelope.contentBlock?.toolUse {
-            return .toolCall(toolUse)
+            return [.toolCall(toolUse)]
         }
 
         if let text = envelope.delta?.text, !text.isEmpty {
-            return .token(text)
+            return [.token(text)]
         }
 
-        return nil
+        return []
     }
 }
 
 private struct OpenAIStreamEnvelope: Decodable {
     var choices: [Choice]
+    var usage: Usage?
 
     struct Choice: Decodable {
         var delta: Delta
@@ -126,17 +190,31 @@ private struct OpenAIStreamEnvelope: Decodable {
         var name: String?
         var arguments: String?
     }
+
+    struct Usage: Decodable {
+        var promptTokens: Int?
+        var completionTokens: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case promptTokens = "prompt_tokens"
+            case completionTokens = "completion_tokens"
+        }
+    }
 }
 
 private struct ClaudeStreamEnvelope: Decodable {
     var type: String
     var delta: Delta?
     var contentBlock: ContentBlock?
+    var message: Message?
+    var usage: Usage?
 
     enum CodingKeys: String, CodingKey {
         case type
         case delta
         case contentBlock = "content_block"
+        case message
+        case usage
     }
 
     struct Delta: Decodable {
@@ -156,6 +234,20 @@ private struct ClaudeStreamEnvelope: Decodable {
             }
             let argumentsJSON = (try? input?.jsonString()) ?? "{}"
             return ToolCallRequest(id: id, name: name, argumentsJSON: argumentsJSON)
+        }
+    }
+
+    struct Message: Decodable {
+        var usage: Usage?
+    }
+
+    struct Usage: Decodable {
+        var inputTokens: Int?
+        var outputTokens: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case inputTokens = "input_tokens"
+            case outputTokens = "output_tokens"
         }
     }
 }
