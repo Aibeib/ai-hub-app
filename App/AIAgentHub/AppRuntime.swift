@@ -114,6 +114,33 @@ final class AppRuntime: AppAuthorizationPresenter {
         refreshModels()
     }
 
+    func clearChatHistory() {
+        chatRepository.clearAllSessions()
+    }
+
+    func clearToolLogs() async {
+        if let auditStore {
+            await auditStore.clearAll()
+        }
+        if let memoryAuditStore {
+            await memoryAuditStore.clearAll()
+        }
+    }
+
+    func clearRemoteCommandLogs() async {
+        await remoteCommandLogStore.clearAll()
+    }
+
+    func purgeExpiredData() async {
+        chatRepository.purgeExpiredDeletedSessions()
+        if let auditStore {
+            await auditStore.clearExpired(now: Date())
+        }
+        if let memoryAuditStore {
+            await memoryAuditStore.clearExpired(now: Date())
+        }
+    }
+
     private func seedDefaultsIfNeeded() {
         guard modelRepository.all(includeDisabled: true).isEmpty else {
             refreshModels()

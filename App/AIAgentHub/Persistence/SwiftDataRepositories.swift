@@ -156,6 +156,13 @@ final class SwiftDataChatRepository: ChatRepository, @unchecked Sendable {
         save()
     }
 
+    func clearAllSessions() {
+        for session in fetchAllSessions() {
+            context.delete(session)
+        }
+        save()
+    }
+
     private func fetchAllSessions() -> [StoredChatSession] {
         let descriptor = FetchDescriptor<StoredChatSession>()
         return (try? context.fetch(descriptor)) ?? []
@@ -189,5 +196,22 @@ final class SwiftDataAuditLogStore: AuditLogStore, @unchecked Sendable {
         context.insert(StoredToolExecutionLog(entry: entry))
         try? context.save()
     }
-}
 
+    func clearExpired(now: Date) async {
+        let descriptor = FetchDescriptor<StoredToolExecutionLog>()
+        let stored = (try? context.fetch(descriptor)) ?? []
+        for entry in stored where entry.expiresAt <= now {
+            context.delete(entry)
+        }
+        try? context.save()
+    }
+
+    func clearAll() async {
+        let descriptor = FetchDescriptor<StoredToolExecutionLog>()
+        let stored = (try? context.fetch(descriptor)) ?? []
+        for entry in stored {
+            context.delete(entry)
+        }
+        try? context.save()
+    }
+}

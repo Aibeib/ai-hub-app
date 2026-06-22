@@ -157,6 +157,8 @@ public struct ToolExecutionLogEntry: Identifiable, Codable, Equatable, Sendable 
 
 public protocol AuditLogStore: Sendable {
     func append(_ entry: ToolExecutionLogEntry) async
+    func clearExpired(now: Date) async
+    func clearAll() async
 }
 
 public final class InMemoryAuditLogStore: AuditLogStore, @unchecked Sendable {
@@ -176,6 +178,18 @@ public final class InMemoryAuditLogStore: AuditLogStore, @unchecked Sendable {
     public func append(_ entry: ToolExecutionLogEntry) async {
         lock.withLock {
             storage.append(entry)
+        }
+    }
+
+    public func clearExpired(now: Date) async {
+        lock.withLock {
+            storage.removeAll { $0.expiresAt <= now }
+        }
+    }
+
+    public func clearAll() async {
+        lock.withLock {
+            storage.removeAll()
         }
     }
 }

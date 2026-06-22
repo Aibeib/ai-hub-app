@@ -10,8 +10,18 @@ struct PrivacyAndLogsView: View {
             Section("Data controls") {
                 Toggle("Allow third-party API calls", isOn: $thirdPartyAPIEnabled)
                 Toggle("Enable local network discovery", isOn: $localNetworkEnabled)
-                Button("Clear chat history", role: .destructive) {}
-                Button("Clear tool execution logs", role: .destructive) {}
+                Button("Clear chat history", role: .destructive) {
+                    runtime.clearChatHistory()
+                }
+                Button("Clear tool execution logs", role: .destructive) {
+                    Task { await runtime.clearToolLogs() }
+                }
+                Button("Clear remote command logs", role: .destructive) {
+                    Task { await runtime.clearRemoteCommandLogs() }
+                }
+                Button("Purge expired data") {
+                    Task { await runtime.purgeExpiredData() }
+                }
             }
 
             Section("Audit policy") {

@@ -124,6 +124,8 @@ struct ValidationRunner {
         repository.softDeleteSession(session.id)
         try require(repository.sessions(includeDeleted: false).isEmpty, "deleted session should be hidden")
         try require(repository.sessions(includeDeleted: true).first?.deleteExpireAt != nil, "delete expiry missing")
+        repository.clearAllSessions()
+        try require(repository.sessions(includeDeleted: true).isEmpty, "clear all sessions failed")
     }
 
     private static func validateModelConfigurationFlow() async throws {
@@ -268,6 +270,8 @@ struct ValidationRunner {
         try require(messages[1].role == .tool, "middle message should be tool result")
         try require(messages[1].content.contains("This is a long internal note"), "tool result should be persisted")
         try require(auditStore.entries.count == 1, "tool execution should be audited")
+        await auditStore.clearAll()
+        try require(auditStore.entries.isEmpty, "tool audit clear failed")
     }
 
     private static func validateDeviceCoordinator() async throws {
@@ -299,6 +303,8 @@ struct ValidationRunner {
         } catch DeviceCoordinatorError.authorizationCancelled {
             try require(logStore.entries.count == 2, "remote command logs missing")
             try require(logStore.entries.last?.decision == .cancelled, "cancelled remote command not audited")
+            await logStore.clearAll()
+            try require(logStore.entries.isEmpty, "remote command log clear failed")
         }
     }
 

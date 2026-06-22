@@ -34,6 +34,7 @@ public protocol ChatRepository: Sendable {
     func archiveSession(_ sessionId: UUID)
     func softDeleteSession(_ sessionId: UUID)
     func purgeExpiredDeletedSessions()
+    func clearAllSessions()
 }
 
 public final class InMemoryChatRepository: ChatRepository, @unchecked Sendable {
@@ -151,6 +152,13 @@ public final class InMemoryChatRepository: ChatRepository, @unchecked Sendable {
                 sessionStorage.removeValue(forKey: id)
                 messageStorage.removeValue(forKey: id)
             }
+        }
+    }
+
+    public func clearAllSessions() {
+        lock.withLock {
+            sessionStorage.removeAll()
+            messageStorage.removeAll()
         }
     }
 }

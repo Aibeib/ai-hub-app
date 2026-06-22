@@ -175,6 +175,7 @@ public final class InMemoryBoundDeviceRepository: BoundDeviceRepository, @unchec
 
 public protocol RemoteCommandLogStore: Sendable {
     func append(_ entry: RemoteCommandLogEntry) async
+    func clearAll() async
 }
 
 public final class InMemoryRemoteCommandLogStore: RemoteCommandLogStore, @unchecked Sendable {
@@ -192,6 +193,12 @@ public final class InMemoryRemoteCommandLogStore: RemoteCommandLogStore, @unchec
     public func append(_ entry: RemoteCommandLogEntry) async {
         lock.withLock {
             storage.append(entry)
+        }
+    }
+
+    public func clearAll() async {
+        lock.withLock {
+            storage.removeAll()
         }
     }
 }
