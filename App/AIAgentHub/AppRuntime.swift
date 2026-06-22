@@ -5,7 +5,7 @@ import AIAgentHubCore
 
 @Observable
 @MainActor
-final class AppRuntime {
+final class AppRuntime: AppAuthorizationPresenter {
     let chatRepository: any ChatRepository
     let modelRepository: any ModelConfigRepository
     let secretStore: any SecretStore
@@ -17,7 +17,9 @@ final class AppRuntime {
     let remoteCommandLogStore: InMemoryRemoteCommandLogStore
     let deviceCoordinator: DeviceCoordinator
     let deviceConnectionService: MockDeviceConnectionService
+    private let authorizationBroker: AppAuthorizationBroker
     var modelConfigs: [ModelConfigRecord]
+    var pendingAuthorization: AuthorizationRequest?
     var boundDevices: [BoundDevice] {
         deviceCoordinator.boundDevices()
     }
@@ -35,10 +37,11 @@ final class AppRuntime {
         let auditStore = SwiftDataAuditLogStore(context: modelContext)
         self.auditStore = auditStore
         memoryAuditStore = nil
+        authorizationBroker = AppAuthorizationBroker()
         toolRegistry = ToolRegistry(
             tools: [TextSummaryTool()],
             auditStore: auditStore,
-            authorization: StaticToolAuthorization(decision: .approved)
+            authorization: authorizationBroker
         )
         deviceRepository = InMemoryBoundDeviceRepository()
         remoteCommandLogStore = InMemoryRemoteCommandLogStore()
@@ -50,9 +53,10 @@ final class AppRuntime {
         deviceCoordinator = DeviceCoordinator(
             connectionService: deviceConnectionService,
             repository: deviceRepository,
-            authorization: StaticRemoteCommandAuthorization(decision: .approved),
+            authorization: authorizationBroker,
             logStore: remoteCommandLogStore
         )
+        authorizationBroker.presenter = self
         modelManager = ModelConfigurationManager(
             repository: modelRepository,
             secretStore: secretStore
@@ -68,10 +72,11 @@ final class AppRuntime {
         auditStore = nil
         let memoryAuditStore = InMemoryAuditLogStore()
         self.memoryAuditStore = memoryAuditStore
+        authorizationBroker = AppAuthorizationBroker()
         toolRegistry = ToolRegistry(
             tools: [TextSummaryTool()],
             auditStore: memoryAuditStore,
-            authorization: StaticToolAuthorization(decision: .approved)
+            authorization: authorizationBroker
         )
         deviceRepository = InMemoryBoundDeviceRepository()
         remoteCommandLogStore = InMemoryRemoteCommandLogStore()
@@ -83,9 +88,10 @@ final class AppRuntime {
         deviceCoordinator = DeviceCoordinator(
             connectionService: deviceConnectionService,
             repository: deviceRepository,
-            authorization: StaticRemoteCommandAuthorization(decision: .approved),
+            authorization: authorizationBroker,
             logStore: remoteCommandLogStore
         )
+        authorizationBroker.presenter = self
         modelManager = ModelConfigurationManager(
             repository: modelRepository,
             secretStore: secretStore
@@ -156,5 +162,12 @@ final class AppRuntime {
             _ = try? modelManager.save(draft)
         }
         refreshModels()
+    }
+}
+
+extension AppRuntime {
+    func resolvePendingAuthorization(approved: Bool) {
+        pendingAuthorization?.continuation.resume(returning: approved)
+        pendingAuthorization = nil
     }
 }

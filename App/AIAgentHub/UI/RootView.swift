@@ -2,6 +2,7 @@ import SwiftUI
 import AIAgentHubCore
 
 struct RootView: View {
+    @Environment(AppRuntime.self) private var runtime
     @State private var selectedRoute = AppRoute.chat
 
     var body: some View {
@@ -22,6 +23,22 @@ struct RootView: View {
             case .privacy:
                 PrivacyAndLogsView()
             }
+        }
+        .alert(
+            runtime.pendingAuthorization?.title ?? "Authorization required",
+            isPresented: Binding(
+                get: { runtime.pendingAuthorization != nil },
+                set: { if !$0 { runtime.resolvePendingAuthorization(approved: false) } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) {
+                runtime.resolvePendingAuthorization(approved: false)
+            }
+            Button("Approve", role: .destructive) {
+                runtime.resolvePendingAuthorization(approved: true)
+            }
+        } message: {
+            Text(runtime.pendingAuthorization?.message ?? "")
         }
     }
 }
@@ -60,4 +77,3 @@ enum AppRoute: String, CaseIterable, Identifiable {
         }
     }
 }
-
