@@ -155,7 +155,14 @@ public final class InMemoryChatRepository: ChatRepository, @unchecked Sendable {
     }
 }
 
-public final class InMemoryModelConfigRepository: @unchecked Sendable {
+public protocol ModelConfigRepository: Sendable {
+    func upsert(_ config: ModelConfigRecord)
+    func all(includeDisabled: Bool) -> [ModelConfigRecord]
+    func defaultModel() -> ModelConfigRecord?
+    func delete(id: UUID)
+}
+
+public final class InMemoryModelConfigRepository: ModelConfigRepository, @unchecked Sendable {
     private var storage: [UUID: ModelConfigRecord] = [:]
     private let lock = NSLock()
 

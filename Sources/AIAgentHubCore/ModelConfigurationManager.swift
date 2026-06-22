@@ -47,13 +47,13 @@ public enum ModelConfigurationError: Error, Equatable {
 }
 
 public final class ModelConfigurationManager: @unchecked Sendable {
-    private let repository: InMemoryModelConfigRepository
+    private let repository: any ModelConfigRepository
     private let secretStore: any SecretStore
     private let resolver: APIKeyResolver
     private let clock: any Clock
 
     public init(
-        repository: InMemoryModelConfigRepository,
+        repository: any ModelConfigRepository,
         secretStore: any SecretStore,
         clock: any Clock = SystemClock()
     ) {
@@ -67,7 +67,7 @@ public final class ModelConfigurationManager: @unchecked Sendable {
     public func save(_ draft: ModelConfigurationDraft) throws -> ModelConfigRecord {
         try validate(draft)
 
-        let existing = draft.id.flatMap { id in repository.all().first { $0.id == id } }
+        let existing = draft.id.flatMap { id in repository.all(includeDisabled: true).first { $0.id == id } }
         let id = draft.id ?? UUID()
         let createdAt = existing?.createdAt ?? clock.now
         let record = ModelConfigRecord(
@@ -119,7 +119,7 @@ public final class ModelConfigurationManager: @unchecked Sendable {
     }
 
     public func deleteModel(_ id: UUID) throws {
-        if let model = repository.all().first(where: { $0.id == id }) {
+        if let model = repository.all(includeDisabled: true).first(where: { $0.id == id }) {
             try secretStore.delete(resolver.secretKey(for: model))
         }
         repository.delete(id: id)
@@ -140,4 +140,3 @@ public final class ModelConfigurationManager: @unchecked Sendable {
         }
     }
 }
-

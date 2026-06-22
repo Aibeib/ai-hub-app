@@ -1,22 +1,30 @@
 import Foundation
 import Observation
+import SwiftData
 import AIAgentHubCore
 
 @Observable
+@MainActor
 final class AppRuntime {
-    let chatRepository: InMemoryChatRepository
-    let modelRepository: InMemoryModelConfigRepository
+    let chatRepository: any ChatRepository
+    let modelRepository: any ModelConfigRepository
     let secretStore: any SecretStore
     let modelManager: ModelConfigurationManager
-    let auditStore: InMemoryAuditLogStore
+    let auditStore: SwiftDataAuditLogStore?
+    let memoryAuditStore: InMemoryAuditLogStore?
     let toolRegistry: ToolRegistry
     var modelConfigs: [ModelConfigRecord]
+    var auditEntries: [ToolExecutionLogEntry] {
+        auditStore?.entries ?? memoryAuditStore?.entries ?? []
+    }
 
-    init(secretStore: any SecretStore = KeychainSecretStore()) {
-        chatRepository = InMemoryChatRepository()
-        modelRepository = InMemoryModelConfigRepository()
+    init(modelContext: ModelContext, secretStore: any SecretStore = KeychainSecretStore()) {
+        chatRepository = SwiftDataChatRepository(context: modelContext)
+        modelRepository = SwiftDataModelConfigRepository(context: modelContext)
         self.secretStore = secretStore
-        auditStore = InMemoryAuditLogStore()
+        let auditStore = SwiftDataAuditLogStore(context: modelContext)
+        self.auditStore = auditStore
+        memoryAuditStore = nil
         toolRegistry = ToolRegistry(
             tools: [TextSummaryTool()],
             auditStore: auditStore,
@@ -30,8 +38,28 @@ final class AppRuntime {
         seedDefaultsIfNeeded()
     }
 
+    init(secretStore: any SecretStore = KeyValueSecretStore()) {
+        chatRepository = InMemoryChatRepository()
+        modelRepository = InMemoryModelConfigRepository()
+        self.secretStore = secretStore
+        auditStore = nil
+        let memoryAuditStore = InMemoryAuditLogStore()
+        self.memoryAuditStore = memoryAuditStore
+        toolRegistry = ToolRegistry(
+            tools: [TextSummaryTool()],
+            auditStore: memoryAuditStore,
+            authorization: StaticToolAuthorization(decision: .approved)
+        )
+        modelManager = ModelConfigurationManager(
+            repository: modelRepository,
+            secretStore: secretStore
+        )
+        modelConfigs = []
+        seedDefaultsIfNeeded()
+    }
+
     func refreshModels() {
-        modelConfigs = modelRepository.all()
+        modelConfigs = modelRepository.all(includeDisabled: true)
     }
 
     @discardableResult
@@ -47,7 +75,7 @@ final class AppRuntime {
     }
 
     private func seedDefaultsIfNeeded() {
-        guard modelRepository.all().isEmpty else {
+        guard modelRepository.all(includeDisabled: true).isEmpty else {
             refreshModels()
             return
         }

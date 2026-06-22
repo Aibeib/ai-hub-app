@@ -5,7 +5,7 @@ import AIAgentHubCore
 @main
 struct AIAgentHubApp: App {
     private let container: ModelContainer
-    @State private var runtime = AppRuntime()
+    @State private var runtime: AppRuntime
 
     init() {
         do {
@@ -16,6 +16,7 @@ struct AIAgentHubApp: App {
                 StoredToolExecutionLog.self,
                 StoredBoundDevice.self
             )
+            runtime = AppRuntime(modelContext: container.mainContext)
         } catch {
             fatalError("Failed to create SwiftData container: \(error)")
         }

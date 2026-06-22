@@ -18,6 +18,10 @@ final class StoredModelConfig {
 
     init(record: ModelConfigRecord) {
         id = record.id
+        apply(record)
+    }
+
+    func apply(_ record: ModelConfigRecord) {
         name = record.name
         providerRawValue = record.provider.rawValue
         modelName = record.modelName
@@ -62,6 +66,11 @@ final class StoredChatSession {
 
     init(record: ChatSessionRecord) {
         id = record.id
+        apply(record)
+        messages = []
+    }
+
+    func apply(_ record: ChatSessionRecord) {
         title = record.title
         modelConfigId = record.modelConfigId
         createdAt = record.createdAt
@@ -70,7 +79,20 @@ final class StoredChatSession {
         isPinned = record.isPinned
         isDeleted = record.isDeleted
         deleteExpireAt = record.deleteExpireAt
-        messages = []
+    }
+
+    var record: ChatSessionRecord {
+        ChatSessionRecord(
+            id: id,
+            title: title,
+            modelConfigId: modelConfigId,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            isArchived: isArchived,
+            isPinned: isPinned,
+            isDeleted: isDeleted,
+            deleteExpireAt: deleteExpireAt
+        )
     }
 }
 
@@ -116,6 +138,10 @@ final class StoredToolExecutionLog {
 
     init(entry: ToolExecutionLogEntry) {
         id = entry.id
+        apply(entry)
+    }
+
+    func apply(_ entry: ToolExecutionLogEntry) {
         sessionId = entry.sessionId
         toolName = entry.toolName
         riskLevelRawValue = entry.riskLevel.rawValue
@@ -123,6 +149,19 @@ final class StoredToolExecutionLog {
         summary = entry.summary
         createdAt = entry.createdAt
         expiresAt = entry.expiresAt
+    }
+
+    var entry: ToolExecutionLogEntry {
+        ToolExecutionLogEntry(
+            id: id,
+            sessionId: sessionId,
+            toolName: toolName,
+            riskLevel: ToolRiskLevel(rawValue: riskLevelRawValue) ?? .low,
+            decision: ToolAuthorizationDecision(rawValue: decisionRawValue) ?? .cancelled,
+            summary: summary,
+            createdAt: createdAt,
+            expiresAt: expiresAt
+        )
     }
 }
 
@@ -138,12 +177,28 @@ final class StoredBoundDevice {
 
     init(device: BoundDevice) {
         id = device.id
+        apply(device)
+    }
+
+    func apply(_ device: BoundDevice) {
         name = device.name
         host = device.host
         port = device.port
         kindRawValue = device.kind.rawValue
         pairedAt = device.pairedAt
         lastSeenAt = device.lastSeenAt
+    }
+
+    var device: BoundDevice {
+        BoundDevice(
+            id: id,
+            name: name,
+            host: host,
+            port: port,
+            kind: DeviceKind(rawValue: kindRawValue) ?? .unknown,
+            pairedAt: pairedAt,
+            lastSeenAt: lastSeenAt
+        )
     }
 }
 

@@ -17,6 +17,7 @@
 		A10000000000000000000008 /* AIAgentHubCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A30000000000000000000002 /* AIAgentHubCore.framework */; };
 		A10000000000000000000009 /* AIAgentHubCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = A30000000000000000000002 /* AIAgentHubCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A10000000000000000000010 /* AppRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* AppRuntime.swift */; };
+		A10000000000000000000011 /* SwiftDataRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* SwiftDataRepositories.swift */; };
 		A11000000000000000000001 /* DomainModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000001 /* DomainModels.swift */; };
 		A11000000000000000000002 /* PrivacyRedactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000002 /* PrivacyRedactor.swift */; };
 		A11000000000000000000003 /* Secrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000003 /* Secrets.swift */; };
@@ -63,6 +64,7 @@
 		A20000000000000000000006 /* DeviceManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/DeviceManagementView.swift; sourceTree = "<group>"; };
 		A20000000000000000000007 /* PrivacyAndLogsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/PrivacyAndLogsView.swift; sourceTree = "<group>"; };
 		A20000000000000000000008 /* AppRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRuntime.swift; sourceTree = "<group>"; };
+		A20000000000000000000009 /* SwiftDataRepositories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Persistence/SwiftDataRepositories.swift; sourceTree = "<group>"; };
 		A21000000000000000000001 /* DomainModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomainModels.swift; sourceTree = "<group>"; };
 		A21000000000000000000002 /* PrivacyRedactor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyRedactor.swift; sourceTree = "<group>"; };
 		A21000000000000000000003 /* Secrets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Secrets.swift; sourceTree = "<group>"; };
@@ -120,6 +122,7 @@
 				A20000000000000000000001 /* AIAgentHubApp.swift */,
 				A20000000000000000000008 /* AppRuntime.swift */,
 				A20000000000000000000002 /* StoredModels.swift */,
+				A20000000000000000000009 /* SwiftDataRepositories.swift */,
 				A20000000000000000000003 /* RootView.swift */,
 				A20000000000000000000004 /* ChatHomeView.swift */,
 				A20000000000000000000005 /* ModelConfigListView.swift */,
@@ -251,6 +254,7 @@
 				A10000000000000000000006 /* DeviceManagementView.swift in Sources */,
 				A10000000000000000000007 /* PrivacyAndLogsView.swift in Sources */,
 				A10000000000000000000010 /* AppRuntime.swift in Sources */,
+				A10000000000000000000011 /* SwiftDataRepositories.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

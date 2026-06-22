@@ -20,11 +20,11 @@ struct PrivacyAndLogsView: View {
             }
 
             Section("Tool execution logs") {
-                if runtime.auditStore.entries.isEmpty {
+                if runtime.auditEntries.isEmpty {
                     Text("No tool calls yet.")
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(runtime.auditStore.entries) { entry in
+                    ForEach(runtime.auditEntries) { entry in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(entry.toolName)
                                 .font(.headline)
