@@ -1,10 +1,30 @@
 import Foundation
 
-/// Exports a session's messages to a Markdown document.
+/// Format the user can choose when exporting a conversation.
+public enum ConversationExportFormat: String, CaseIterable, Sendable {
+    case markdown
+    case json
+
+    public var fileExtension: String {
+        switch self {
+        case .markdown: "md"
+        case .json: "json"
+        }
+    }
+
+    public var displayName: String {
+        switch self {
+        case .markdown: "Markdown"
+        case .json: "JSON"
+        }
+    }
+}
+
+/// Exports a session's messages to either Markdown or JSON.
 ///
-/// The output is a single human-readable string with role headers, timestamps, and content
-/// separated by thematic breaks. No frontmatter or metadata is included so the export can be
-/// pasted directly into documentation or shared.
+/// Markdown output is single human-readable string with role headers, timestamps, and content
+/// separated by thematic breaks. JSON output is a structured document with full metadata
+/// (ids, roles, timestamps, token usage) so it can be re-imported by tooling.
 public struct ConversationExporter: Sendable {
     public let dateFormatter: DateFormatter
 
@@ -16,13 +36,28 @@ public struct ConversationExporter: Sendable {
         self.dateFormatter = fm
     }
 
-    /// Produce a Markdown block from a session's message list.
-    ///
-    /// - Returns: A Markdown string with `## role` headers, timestamps, code-fenced tool results.
+    /// Backwards-compatible Markdown export — preserved so existing callers don't break.
     public func export(sessionTitle: String, messages: [ChatMessageDTO], tokenUsage: TokenUsage?) -> String {
-        var lines: [String] = []
+        export(sessionTitle: sessionTitle, messages: messages, tokenUsage: tokenUsage, format: .markdown)
+    }
 
-        // Title
+    /// Format-aware export. Returns the rendered document string.
+    public func export(
+        sessionTitle: String,
+        messages: [ChatMessageDTO],
+        tokenUsage: TokenUsage?,
+        format: ConversationExportFormat
+    ) -> String {
+        switch format {
+        case .markdown:
+            renderMarkdown(sessionTitle: sessionTitle, messages: messages, tokenUsage: tokenUsage)
+        case .json:
+            renderJSON(sessionTitle: sessionTitle, messages: messages, tokenUsage: tokenUsage)
+        }
+    }
+
+    private func renderMarkdown(sessionTitle: String, messages: [ChatMessageDTO], tokenUsage: TokenUsage?) -> String {
+        var lines: [String] = []
         lines.append("# \(sessionTitle)\n")
 
         for message in messages {
@@ -30,12 +65,12 @@ public struct ConversationExporter: Sendable {
             switch message.role {
             case .user:
                 lines.append("## You (\(ts))\n")
-                lines.append(escape(message.content))
+                lines.append(message.content)
                 lines.append("")
 
             case .assistant:
                 lines.append("## Assistant (\(ts))\n")
-                lines.append(escape(message.content))
+                lines.append(message.content)
                 lines.append("")
 
             case .tool:
@@ -46,7 +81,7 @@ public struct ConversationExporter: Sendable {
 
             case .system:
                 lines.append("## System (\(ts))\n")
-                lines.append(escape(message.content))
+                lines.append(message.content)
                 lines.append("")
             }
         }
@@ -59,10 +94,51 @@ public struct ConversationExporter: Sendable {
         return lines.joined(separator: "\n")
     }
 
-    private func escape(_ text: String) -> String {
-        // Prefix with a backslash to avoid Markdown rendering issues for leading hashes
-        // or list markers. The text is raw user/assistant content so we just fence it
-        // in a paragraph block by escaping the first line if needed.
-        text
+    private func renderJSON(sessionTitle: String, messages: [ChatMessageDTO], tokenUsage: TokenUsage?) -> String {
+        let document = JSONDocument(
+            title: sessionTitle,
+            exportedAt: Date(),
+            messages: messages.map { JSONDocument.Message(from: $0) },
+            tokenUsage: tokenUsage.map(JSONDocument.Usage.init(from:))
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(document),
+              let text = String(data: data, encoding: .utf8) else {
+            return "{}"
+        }
+        return text
+    }
+
+    private struct JSONDocument: Encodable {
+        let title: String
+        let exportedAt: Date
+        let messages: [Message]
+        let tokenUsage: Usage?
+
+        struct Message: Encodable {
+            let id: UUID
+            let role: String
+            let content: String
+            let timestamp: Date
+
+            init(from dto: ChatMessageDTO) {
+                self.id = dto.id
+                self.role = dto.role.rawValue
+                self.content = dto.content
+                self.timestamp = dto.timestamp
+            }
+        }
+
+        struct Usage: Encodable {
+            let promptTokens: Int
+            let completionTokens: Int
+
+            init(from usage: TokenUsage) {
+                self.promptTokens = usage.promptTokens
+                self.completionTokens = usage.completionTokens
+            }
+        }
     }
 }
