@@ -8,12 +8,20 @@ final class AppRuntime {
     let modelRepository: InMemoryModelConfigRepository
     let secretStore: any SecretStore
     let modelManager: ModelConfigurationManager
+    let auditStore: InMemoryAuditLogStore
+    let toolRegistry: ToolRegistry
     var modelConfigs: [ModelConfigRecord]
 
     init(secretStore: any SecretStore = KeychainSecretStore()) {
         chatRepository = InMemoryChatRepository()
         modelRepository = InMemoryModelConfigRepository()
         self.secretStore = secretStore
+        auditStore = InMemoryAuditLogStore()
+        toolRegistry = ToolRegistry(
+            tools: [TextSummaryTool()],
+            auditStore: auditStore,
+            authorization: StaticToolAuthorization(decision: .approved)
+        )
         modelManager = ModelConfigurationManager(
             repository: modelRepository,
             secretStore: secretStore
@@ -86,4 +94,3 @@ final class AppRuntime {
         refreshModels()
     }
 }
-

@@ -85,9 +85,15 @@ struct ChatHomeView: View {
                 repository: runtime.chatRepository,
                 aiService: aiService,
                 redactor: PrivacyRedactor(),
-                contextBuilder: ContextBuilder()
+                contextBuilder: ContextBuilder(),
+                toolRegistry: runtime.toolRegistry
             )
-            try await orchestrator.sendUserMessage(message, in: selectedSessionId, using: resolvedModel)
+            try await orchestrator.sendUserMessage(
+                message,
+                in: selectedSessionId,
+                using: resolvedModel,
+                tools: runtime.toolRegistry.definitions
+            )
         } catch {
             draft = message
             errorMessage = error.localizedDescription

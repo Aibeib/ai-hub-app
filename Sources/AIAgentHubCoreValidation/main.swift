@@ -12,6 +12,7 @@ struct ValidationRunner {
             try validateRepositories()
             try await validateModelConfigurationFlow()
             try await validateChatOrchestrator()
+            try await validateToolCallingChatLoop()
             print("AIAgentHubCoreValidation: all checks passed")
         } catch {
             fputs("AIAgentHubCoreValidation failed: \(error)\n", stderr)
@@ -213,6 +214,58 @@ struct ValidationRunner {
         let messages = repository.messages(for: session.id)
         try require(messages.count == 2, "chat should persist user and assistant messages")
         try require(messages[0].content.contains("[local-path]"), "user message should be redacted")
+    }
+
+    private static func validateToolCallingChatLoop() async throws {
+        let repository = InMemoryChatRepository()
+        let auditStore = InMemoryAuditLogStore()
+        let toolRegistry = ToolRegistry(
+            tools: [TextSummaryTool()],
+            auditStore: auditStore,
+            authorization: StaticToolAuthorization(decision: .approved)
+        )
+        let session = repository.createSession(title: "Tools", modelConfigId: nil)
+        let model = ResolvedModelConfig(
+            id: UUID(),
+            provider: .openai,
+            name: "Test",
+            modelName: "gpt-test",
+            endpoint: URL(string: "https://example.com"),
+            apiKey: "sk-test",
+            temperature: 0.7,
+            maxTokens: 100
+        )
+        let orchestrator = ChatOrchestrator(
+            repository: repository,
+            aiService: StubAIService(events: [
+                .toolCall(
+                    ToolCallRequest(
+                        id: "call-1",
+                        name: "summarize_text",
+                        argumentsJSON: #"{"text":"This is a long internal note that should be summarized by the local tool."}"#
+                    )
+                ),
+                .token("Summary ready."),
+                .completed
+            ]),
+            redactor: PrivacyRedactor(),
+            contextBuilder: ContextBuilder(maxCharacters: 500),
+            toolRegistry: toolRegistry
+        )
+
+        let response = try await orchestrator.sendUserMessage(
+            "Summarize the note",
+            in: session.id,
+            using: model,
+            tools: toolRegistry.definitions
+        )
+
+        let messages = repository.messages(for: session.id)
+        try require(response == "Summary ready.", "tool chat response mismatch")
+        try require(messages.count == 3, "tool loop should persist user, tool, and assistant messages")
+        try require(messages[1].role == .tool, "middle message should be tool result")
+        try require(messages[1].content.contains("This is a long internal note"), "tool result should be persisted")
+        try require(auditStore.entries.count == 1, "tool execution should be audited")
     }
 
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {

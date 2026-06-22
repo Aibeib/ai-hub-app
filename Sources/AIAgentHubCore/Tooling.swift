@@ -43,6 +43,40 @@ public enum ToolArgument: Equatable, Sendable {
     case object([String: ToolArgument])
 }
 
+public enum ToolArgumentDecoderError: Error, Equatable {
+    case invalidJSON
+    case unsupportedValue(String)
+}
+
+public enum ToolArgumentDecoder {
+    public static func decode(_ json: String) throws -> [String: ToolArgument] {
+        guard !json.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return [:]
+        }
+        guard let data = json.data(using: .utf8),
+              let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ToolArgumentDecoderError.invalidJSON
+        }
+        return try object.mapValues(convert)
+    }
+
+    private static func convert(_ value: Any) throws -> ToolArgument {
+        switch value {
+        case let string as String:
+            return .string(string)
+        case let number as NSNumber:
+            if CFGetTypeID(number) == CFBooleanGetTypeID() {
+                return .boolean(number.boolValue)
+            }
+            return .number(number.doubleValue)
+        case let object as [String: Any]:
+            return .object(try object.mapValues(convert))
+        default:
+            throw ToolArgumentDecoderError.unsupportedValue(String(describing: value))
+        }
+    }
+}
+
 public struct ToolResult: Equatable, Sendable {
     public var displayText: String
     public var metadata: [String: String]
@@ -224,4 +258,3 @@ public struct TextSummaryTool: Tool {
         return ToolResult(displayText: summary)
     }
 }
-

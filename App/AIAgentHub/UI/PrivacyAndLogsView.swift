@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct PrivacyAndLogsView: View {
+    @Environment(AppRuntime.self) private var runtime
     @State private var thirdPartyAPIEnabled = true
     @State private var localNetworkEnabled = false
 
@@ -18,6 +19,25 @@ struct PrivacyAndLogsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Tool execution logs") {
+                if runtime.auditStore.entries.isEmpty {
+                    Text("No tool calls yet.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(runtime.auditStore.entries) { entry in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(entry.toolName)
+                                .font(.headline)
+                            Text("\(entry.riskLevel.rawValue) · \(entry.decision.rawValue)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(entry.summary)
+                                .font(.caption)
+                        }
+                    }
+                }
+            }
+
             Section("High-risk actions") {
                 Text("Code execution, file modification, deletion, and remote device commands require a fresh confirmation every time.")
                     .foregroundStyle(.secondary)
@@ -26,4 +46,3 @@ struct PrivacyAndLogsView: View {
         .navigationTitle("Privacy")
     }
 }
-

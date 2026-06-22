@@ -35,17 +35,20 @@ public final class ChatOrchestrator: @unchecked Sendable {
     private let aiService: any AIService
     private let redactor: PrivacyRedactor
     private let contextBuilder: ContextBuilder
+    private let toolRegistry: ToolRegistry?
 
     public init(
         repository: any ChatRepository,
         aiService: any AIService,
         redactor: PrivacyRedactor = PrivacyRedactor(),
-        contextBuilder: ContextBuilder = ContextBuilder()
+        contextBuilder: ContextBuilder = ContextBuilder(),
+        toolRegistry: ToolRegistry? = nil
     ) {
         self.repository = repository
         self.aiService = aiService
         self.redactor = redactor
         self.contextBuilder = contextBuilder
+        self.toolRegistry = toolRegistry
     }
 
     @discardableResult
@@ -75,8 +78,20 @@ public final class ChatOrchestrator: @unchecked Sendable {
             switch event {
             case let .token(token):
                 response += token
-            case .toolCall:
-                continue
+            case let .toolCall(toolCall):
+                guard let toolRegistry else {
+                    continue
+                }
+                let arguments = try ToolArgumentDecoder.decode(toolCall.argumentsJSON)
+                let result = try await toolRegistry.execute(
+                    toolName: toolCall.name,
+                    arguments: arguments,
+                    sessionId: sessionId
+                )
+                repository.appendMessage(
+                    ChatMessageDTO(role: .tool, content: result.displayText),
+                    to: sessionId
+                )
             case .usage:
                 continue
             case .completed:
@@ -115,4 +130,3 @@ public struct StubAIService: AIService {
         }
     }
 }
-
