@@ -31,6 +31,10 @@ struct ValidationRunner {
             try await validateTokenUsageTracking()
             try await validateMessageSearch()
             try await validateGenerationCancellation()
+            try validateOpenAIUsageParsing()
+            try validateClaudeUsageParsing()
+            try await validateAuditRetentionFollowsPreference()
+            try validateJSONExport()
             print("AIAgentHubCoreValidation: all checks passed")
         } catch {
             fputs("AIAgentHubCoreValidation failed: \(error)\n", stderr)
@@ -564,6 +568,122 @@ struct ValidationRunner {
         try require(final.isCompleted, "buffer should be marked completed at end of stream")
     }
 
+    // MARK: - Round 9: provider usage parsing
+
+    private static func validateOpenAIUsageParsing() throws {
+        let payload = """
+        data: {"choices":[{"delta":{"content":"Hi"}}]}
+
+        data: {"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":3}}
+
+        data: [DONE]
+
+        """
+        let events = try OpenAICompatibleSSEParser().parse(payload.data(using: .utf8)!)
+        try require(events.contains(.token("Hi")), "OpenAI token missing in events")
+        try require(events.contains(.usage(TokenUsage(promptTokens: 7, completionTokens: 3))), "OpenAI usage chunk not parsed")
+        try require(events.contains(.completed), "OpenAI completion missing")
+    }
+
+    private static func validateClaudeUsageParsing() throws {
+        let payload = """
+        event: message_start
+        data: {"type":"message_start","message":{"usage":{"input_tokens":12,"output_tokens":0}}}
+
+        event: content_block_delta
+        data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hi"}}
+
+        event: message_delta
+        data: {"type":"message_delta","usage":{"output_tokens":5}}
+
+        event: message_stop
+        data: {"type":"message_stop"}
+
+        """
+        let events = try ClaudeSSEParser().parse(payload.data(using: .utf8)!)
+        try require(events.contains(.token("Hi")), "Claude token missing")
+        // Final assembled usage should be 12 input / 5 output
+        try require(
+            events.contains(.usage(TokenUsage(promptTokens: 12, completionTokens: 5))),
+            "Claude assembled usage missing — got events: \(events)"
+        )
+        // And usage must come before completed
+        if let usageIdx = events.firstIndex(of: .usage(TokenUsage(promptTokens: 12, completionTokens: 5))),
+           let completedIdx = events.firstIndex(of: .completed) {
+            try require(usageIdx < completedIdx, "Claude usage should arrive before .completed")
+        }
+    }
+
+    // MARK: - Round 10: audit retention follows preference
+
+    private static func validateAuditRetentionFollowsPreference() async throws {
+        let auditStore = InMemoryAuditLogStore()
+        let retentionRef = RetentionRef(days: 30)
+        let registry = ToolRegistry(
+            tools: [ValidationEchoTool()],
+            auditStore: auditStore,
+            authorization: StaticToolAuthorization(decision: .approved),
+            retentionDaysProvider: { retentionRef.days },
+            clock: FixedClock(now: Date(timeIntervalSince1970: 1_700_000_000))
+        )
+
+        _ = try await registry.execute(
+            toolName: "echo",
+            arguments: ["text": .string("first")],
+            sessionId: UUID()
+        )
+        let first = auditStore.entries.last!
+        let delta = first.expiresAt.timeIntervalSince(first.createdAt)
+        try require(abs(delta - 30 * 86_400) < 1, "default retention should be 30 days, got \(delta / 86_400) days")
+
+        // Shrink retention — next entry should respect it
+        retentionRef.days = 7
+        _ = try await registry.execute(
+            toolName: "echo",
+            arguments: ["text": .string("second")],
+            sessionId: UUID()
+        )
+        let second = auditStore.entries.last!
+        let delta2 = second.expiresAt.timeIntervalSince(second.createdAt)
+        try require(abs(delta2 - 7 * 86_400) < 1, "updated retention should be 7 days, got \(delta2 / 86_400) days")
+
+        // Older entry's expiresAt should be unchanged
+        try require(auditStore.entries.first!.expiresAt == first.expiresAt, "existing entries should keep their original expiresAt")
+    }
+
+    // MARK: - Round 11: JSON export
+
+    private static func validateJSONExport() throws {
+        let exporter = ConversationExporter()
+        let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let messages: [ChatMessageDTO] = [
+            ChatMessageDTO(role: .user, content: "Hi", timestamp: baseDate),
+            ChatMessageDTO(role: .assistant, content: "Hello", timestamp: baseDate.addingTimeInterval(2))
+        ]
+        let json = exporter.export(
+            sessionTitle: "Trip",
+            messages: messages,
+            tokenUsage: TokenUsage(promptTokens: 10, completionTokens: 5),
+            format: .json
+        )
+
+        guard let data = json.data(using: .utf8),
+              let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ValidationError("JSON export did not produce valid JSON")
+        }
+        try require(obj["title"] as? String == "Trip", "JSON export missing title")
+        let msgs = obj["messages"] as? [[String: Any]]
+        try require(msgs?.count == 2, "JSON export should have 2 messages")
+        try require(msgs?.first?["role"] as? String == "user", "first message should be user")
+        let usage = obj["tokenUsage"] as? [String: Any]
+        try require(usage?["promptTokens"] as? Int == 10, "JSON usage promptTokens missing")
+        try require(usage?["completionTokens"] as? Int == 5, "JSON usage completionTokens missing")
+
+        // Format extension and display
+        try require(ConversationExportFormat.json.fileExtension == "json", "JSON file extension wrong")
+        try require(ConversationExportFormat.markdown.fileExtension == "md", "Markdown file extension wrong")
+    }
+
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
         if !condition() {
             throw ValidationError(message)
@@ -1000,5 +1120,20 @@ private struct ValidationAIHTTPClient: AIHTTPClient {
             """.data(using: .utf8)!)
             continuation.finish()
         }
+    }
+}
+
+/// Mutable reference to an Int for use as a sendable retention provider in tests.
+private final class RetentionRef: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: Int
+
+    var days: Int {
+        get { lock.withLock { storage } }
+        set { lock.withLock { storage = newValue } }
+    }
+
+    init(days: Int) {
+        self.storage = days
     }
 }
