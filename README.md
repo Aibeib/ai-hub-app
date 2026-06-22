@@ -35,6 +35,24 @@ This validates:
 - Secret store behavior
 - In-memory chat repository behavior
 - Chat orchestration persistence and streamed response assembly
+- Provider tool schema serialization
+- Claude tool-use stream parsing
+- AES-GCM remote transport envelope encoding/decoding
+
+## Install Testing
+
+This repository now includes install-test helper scripts, but full Xcode is required:
+
+```sh
+scripts/check-xcode.sh
+scripts/build-ios.sh
+```
+
+If `xcode-select` points to Command Line Tools, switch to Xcode first:
+
+```sh
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+```
 
 ## Next Phase
 

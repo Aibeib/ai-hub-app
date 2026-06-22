@@ -88,6 +88,10 @@ public struct ClaudeSSEParser: ChatStreamParser {
             return .completed
         }
 
+        if let toolUse = envelope.contentBlock?.toolUse {
+            return .toolCall(toolUse)
+        }
+
         if let text = envelope.delta?.text, !text.isEmpty {
             return .token(text)
         }
@@ -127,10 +131,80 @@ private struct OpenAIStreamEnvelope: Decodable {
 private struct ClaudeStreamEnvelope: Decodable {
     var type: String
     var delta: Delta?
+    var contentBlock: ContentBlock?
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case delta
+        case contentBlock = "content_block"
+    }
 
     struct Delta: Decodable {
         var type: String?
         var text: String?
     }
+
+    struct ContentBlock: Decodable {
+        var type: String
+        var id: String?
+        var name: String?
+        var input: JSONValue?
+
+        var toolUse: ToolCallRequest? {
+            guard type == "tool_use", let id, let name else {
+                return nil
+            }
+            let argumentsJSON = (try? input?.jsonString()) ?? "{}"
+            return ToolCallRequest(id: id, name: name, argumentsJSON: argumentsJSON)
+        }
+    }
 }
 
+private enum JSONValue: Decodable {
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+    case object([String: JSONValue])
+    case array([JSONValue])
+    case null
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            self = .null
+        } else if let value = try? container.decode(Bool.self) {
+            self = .bool(value)
+        } else if let value = try? container.decode(Double.self) {
+            self = .number(value)
+        } else if let value = try? container.decode(String.self) {
+            self = .string(value)
+        } else if let value = try? container.decode([String: JSONValue].self) {
+            self = .object(value)
+        } else {
+            self = .array(try container.decode([JSONValue].self))
+        }
+    }
+
+    func jsonString() throws -> String {
+        let object = foundationObject
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    private var foundationObject: Any {
+        switch self {
+        case let .string(value):
+            value
+        case let .number(value):
+            value
+        case let .bool(value):
+            value
+        case let .object(value):
+            value.mapValues(\.foundationObject)
+        case let .array(value):
+            value.map(\.foundationObject)
+        case .null:
+            NSNull()
+        }
+    }
+}

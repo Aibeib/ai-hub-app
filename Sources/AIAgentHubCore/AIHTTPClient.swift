@@ -111,7 +111,8 @@ public struct OpenAICompatibleRequestBuilder: ProviderRequestBuilder {
                 },
                 temperature: request.temperature,
                 maxTokens: request.maxTokens,
-                stream: true
+                stream: true,
+                tools: request.tools.map(OpenAICompatibleRequestBody.Tool.init(definition:))
             )
         )
         return urlRequest
@@ -143,7 +144,8 @@ public struct ClaudeRequestBuilder: ProviderRequestBuilder {
                     .map { ClaudeRequestBody.Message(role: $0.role.rawValue, content: $0.content) },
                 maxTokens: request.maxTokens,
                 temperature: request.temperature,
-                stream: true
+                stream: true,
+                tools: request.tools.map(ClaudeRequestBody.Tool.init(definition:))
             )
         )
         return urlRequest
@@ -199,6 +201,7 @@ private struct OpenAICompatibleRequestBody: Encodable {
     var temperature: Double
     var maxTokens: Int
     var stream: Bool
+    var tools: [Tool]
 
     enum CodingKeys: String, CodingKey {
         case model
@@ -206,11 +209,33 @@ private struct OpenAICompatibleRequestBody: Encodable {
         case temperature
         case maxTokens = "max_tokens"
         case stream
+        case tools
     }
 
     struct Message: Encodable {
         var role: String
         var content: String
+    }
+
+    struct Tool: Encodable {
+        var type = "function"
+        var function: Function
+
+        init(definition: ToolDefinition) {
+            function = Function(definition: definition)
+        }
+
+        struct Function: Encodable {
+            var name: String
+            var description: String
+            var parameters: ToolJSONSchema
+
+            init(definition: ToolDefinition) {
+                name = definition.name
+                description = definition.description
+                parameters = ToolJSONSchema(definition: definition)
+            }
+        }
     }
 }
 
@@ -220,6 +245,7 @@ private struct ClaudeRequestBody: Encodable {
     var maxTokens: Int
     var temperature: Double
     var stream: Bool
+    var tools: [Tool]
 
     enum CodingKeys: String, CodingKey {
         case model
@@ -227,11 +253,61 @@ private struct ClaudeRequestBody: Encodable {
         case maxTokens = "max_tokens"
         case temperature
         case stream
+        case tools
     }
 
     struct Message: Encodable {
         var role: String
         var content: String
     }
+
+    struct Tool: Encodable {
+        var name: String
+        var description: String
+        var inputSchema: ToolJSONSchema
+
+        enum CodingKeys: String, CodingKey {
+            case name
+            case description
+            case inputSchema = "input_schema"
+        }
+
+        init(definition: ToolDefinition) {
+            name = definition.name
+            description = definition.description
+            inputSchema = ToolJSONSchema(definition: definition)
+        }
+    }
 }
 
+private struct ToolJSONSchema: Encodable {
+    var type = "object"
+    var properties: [String: Property]
+    var required: [String]
+
+    init(definition: ToolDefinition) {
+        properties = Dictionary(uniqueKeysWithValues: definition.parameters.map { parameter in
+            (parameter.name, Property(type: parameter.type.jsonSchemaType))
+        })
+        required = definition.parameters.filter(\.isRequired).map(\.name)
+    }
+
+    struct Property: Encodable {
+        var type: String
+    }
+}
+
+private extension ToolParameterType {
+    var jsonSchemaType: String {
+        switch self {
+        case .string:
+            "string"
+        case .number:
+            "number"
+        case .boolean:
+            "boolean"
+        case .object:
+            "object"
+        }
+    }
+}

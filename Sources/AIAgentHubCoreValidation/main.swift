@@ -8,6 +8,7 @@ struct ValidationRunner {
             try validatePrivacyRedactor()
             try await validateToolRegistry()
             try validateSSEParsers()
+            try validateProviderToolSchemas()
             try validateSecretStore()
             try validateRepositories()
             try await validateModelConfigurationFlow()
@@ -16,6 +17,7 @@ struct ValidationRunner {
             try await validateDeviceCoordinator()
             try await validateSandboxExecutor()
             try validateEncryptedTransport()
+            try validateEncryptedRemoteTransportCodec()
             print("AIAgentHubCoreValidation: all checks passed")
         } catch {
             fputs("AIAgentHubCoreValidation failed: \(error)\n", stderr)
@@ -100,6 +102,56 @@ struct ValidationRunner {
         """
         let claudeEvents = try ClaudeSSEParser().parse(claudePayload.data(using: .utf8)!)
         try require(claudeEvents == [.token("Hi"), .completed], "Claude SSE parse mismatch")
+
+        let claudeToolPayload = """
+        event: content_block_start
+        data: {"type":"content_block_start","content_block":{"type":"tool_use","id":"toolu_1","name":"summarize_text","input":{"text":"hello"}}}
+
+        """
+        let claudeToolEvents = try ClaudeSSEParser().parse(claudeToolPayload.data(using: .utf8)!)
+        try require(
+            claudeToolEvents == [
+                .toolCall(ToolCallRequest(id: "toolu_1", name: "summarize_text", argumentsJSON: #"{"text":"hello"}"#))
+            ],
+            "Claude tool use parse mismatch"
+        )
+    }
+
+    private static func validateProviderToolSchemas() throws {
+        let model = ResolvedModelConfig(
+            id: UUID(),
+            provider: .openai,
+            name: "OpenAI",
+            modelName: "gpt-test",
+            endpoint: URL(string: "https://example.com"),
+            apiKey: "sk-test",
+            temperature: 0.7,
+            maxTokens: 512
+        )
+        let tool = ToolDefinition(
+            name: "summarize_text",
+            description: "Summarizes text.",
+            parameters: [
+                ToolParameter(name: "text", type: .string, isRequired: true)
+            ]
+        )
+        let request = ChatRequest(
+            model: model,
+            messages: [ChatMessageDTO(role: .user, content: "Hello")],
+            tools: [tool],
+            temperature: model.temperature,
+            maxTokens: model.maxTokens
+        )
+
+        let openAIRequest = try OpenAICompatibleRequestBuilder().build(request)
+        let openAIBody = try requireJSONObject(openAIRequest.httpBody)
+        let openAITools = openAIBody["tools"] as? [[String: Any]]
+        try require(openAITools?.first?["type"] as? String == "function", "OpenAI tool type missing")
+
+        let claudeRequest = try ClaudeRequestBuilder().build(request)
+        let claudeBody = try requireJSONObject(claudeRequest.httpBody)
+        let claudeTools = claudeBody["tools"] as? [[String: Any]]
+        try require(claudeTools?.first?["name"] as? String == "summarize_text", "Claude tool name missing")
     }
 
     private static func validateSecretStore() throws {
@@ -338,6 +390,19 @@ struct ValidationRunner {
         }
     }
 
+    private static func validateEncryptedRemoteTransportCodec() throws {
+        let codec = EncryptedRemoteTransportCodec()
+        let key = SymmetricTransportKey(rawValue: Data(repeating: 3, count: 32))
+        let command = RemoteCommand(instruction: "Create a report", risk: .low)
+        let message = RemoteTransportMessage(type: .command, command: command)
+
+        let envelope = try codec.encode(message, key: key)
+        let decoded = try codec.decode(envelope, key: key)
+
+        try require(decoded.type == .command, "transport message type mismatch")
+        try require(decoded.command == command, "transport command mismatch")
+    }
+
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
         if !condition() {
             throw ValidationError(message)
@@ -352,6 +417,14 @@ struct ValidationRunner {
             events.append(event)
         }
         return events
+    }
+
+    private static func requireJSONObject(_ data: Data?) throws -> [String: Any] {
+        guard let data,
+              let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ValidationError("expected JSON object")
+        }
+        return object
     }
 }
 
