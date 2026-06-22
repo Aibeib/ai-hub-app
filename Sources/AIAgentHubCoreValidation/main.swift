@@ -18,6 +18,10 @@ struct ValidationRunner {
             try await validateSandboxExecutor()
             try validateEncryptedTransport()
             try validateEncryptedRemoteTransportCodec()
+            try await validateStreamingResponseBuffer()
+            try validatePrivacyPreferences()
+            try validateSessionMutationOperations()
+            try await validateStreamingChatOrchestrator()
             print("AIAgentHubCoreValidation: all checks passed")
         } catch {
             fputs("AIAgentHubCoreValidation failed: \(error)\n", stderr)
@@ -401,6 +405,154 @@ struct ValidationRunner {
 
         try require(decoded.type == .command, "transport message type mismatch")
         try require(decoded.command == command, "transport command mismatch")
+    }
+
+    // MARK: - New: streaming buffer
+
+    private static func validateStreamingResponseBuffer() async throws {
+        let buffer = StreamingResponseBuffer()
+
+        // Subscribe first, then produce. Without ordering you race the producer against the
+        // observer's registration and the early snapshots are missed.
+        let stream = await buffer.observe()
+        let observerTask = Task { () -> [String] in
+            var seen: [String] = []
+            for await snapshot in stream {
+                seen.append(snapshot.text)
+            }
+            return seen
+        }
+
+        // Yield once so the iterator latches onto the stream before we begin producing.
+        try await Task.sleep(nanoseconds: 5_000_000)
+        await buffer.append(token: "Hel")
+        try await Task.sleep(nanoseconds: 5_000_000)
+        await buffer.append(token: "lo")
+        try await Task.sleep(nanoseconds: 5_000_000)
+        await buffer.append(token: " world")
+        try await Task.sleep(nanoseconds: 5_000_000)
+        await buffer.complete()
+
+        let history = await observerTask.value
+
+        try require(history.last == "Hello world", "buffer final text mismatch — got \(history.last ?? "nil")")
+        // We accept any progression that ends with the full text. The intermediate snapshots
+        // exist when the consumer keeps up; on slow CI the broadcast may coalesce. Either is fine.
+        try require(history.contains("Hello world"), "final aggregate snapshot missing")
+
+        let snap = await buffer.snapshot()
+        try require(snap.isCompleted, "buffer should be marked completed")
+        try require(snap.failure == nil, "buffer should have no failure")
+
+        // Failure path
+        let failBuffer = StreamingResponseBuffer()
+        await failBuffer.append(token: "partial")
+        await failBuffer.fail("provider exploded")
+        let failSnap = await failBuffer.snapshot()
+        try require(failSnap.failure == "provider exploded", "failure message lost")
+        try require(failSnap.isCompleted, "failed buffer should be marked completed")
+    }
+
+    // MARK: - New: privacy preferences repo
+
+    private static func validatePrivacyPreferences() throws {
+        let repo = InMemoryPrivacyPreferencesRepository()
+        let defaultPrefs = repo.load()
+        try require(defaultPrefs.allowThirdPartyAPIs, "default allowThirdPartyAPIs should be true")
+        try require(!defaultPrefs.enableLocalNetworkDiscovery, "default enableLocalNetworkDiscovery should be false")
+        try require(defaultPrefs.redactBeforeSending, "default redactBeforeSending should be true")
+        try require(defaultPrefs.retainAuditLogsDays == 30, "default retention should be 30 days")
+
+        let updated = PrivacyPreferences(
+            allowThirdPartyAPIs: false,
+            enableLocalNetworkDiscovery: true,
+            redactBeforeSending: true,
+            retainAuditLogsDays: 14
+        )
+        repo.save(updated)
+        try require(repo.load() == updated, "saved preferences not persisted")
+
+        // UserDefaults backing — exercise the encode/decode path with an isolated suite.
+        guard let suite = UserDefaults(suiteName: "aiagenthub.tests.\(UUID().uuidString)") else {
+            throw ValidationError("could not create UserDefaults suite")
+        }
+        let userDefaultsRepo = UserDefaultsPrivacyPreferencesRepository(defaults: suite, key: "test.prefs")
+        try require(userDefaultsRepo.load() == .default, "missing key should yield defaults")
+        userDefaultsRepo.save(updated)
+        try require(userDefaultsRepo.load() == updated, "UserDefaults repo did not round-trip")
+        suite.removePersistentDomain(forName: "aiagenthub.tests")
+    }
+
+    // MARK: - New: session pin / restore / model bind
+
+    private static func validateSessionMutationOperations() throws {
+        let clock = FixedClock(now: Date(timeIntervalSince1970: 1_700_000_000))
+        let repo = InMemoryChatRepository(clock: clock)
+        let modelA = UUID()
+        let modelB = UUID()
+
+        let chat1 = repo.createSession(title: "Chat 1", modelConfigId: modelA)
+        let chat2 = repo.createSession(title: "Chat 2", modelConfigId: nil)
+
+        // Pin: pinned should sort first regardless of updatedAt
+        repo.setSessionPinned(chat2.id, isPinned: true)
+        let ordered = repo.sessions(includeDeleted: false)
+        try require(ordered.first?.id == chat2.id, "pinned session should sort first")
+        try require(ordered.first?.isPinned == true, "pin flag not set")
+
+        // Unpin
+        repo.setSessionPinned(chat2.id, isPinned: false)
+        try require(repo.session(id: chat2.id)?.isPinned == false, "unpin failed")
+
+        // Per-session model rebind
+        repo.setSessionModel(chat1.id, modelConfigId: modelB)
+        try require(repo.session(id: chat1.id)?.modelConfigId == modelB, "model rebind failed")
+        repo.setSessionModel(chat1.id, modelConfigId: nil)
+        try require(repo.session(id: chat1.id)?.modelConfigId == nil, "model unbind failed")
+
+        // Soft delete + restore
+        repo.softDeleteSession(chat2.id)
+        try require(repo.sessions(includeDeleted: false).contains(where: { $0.id == chat2.id }) == false, "soft-deleted session should be hidden")
+        repo.restoreSession(chat2.id)
+        try require(repo.session(id: chat2.id)?.isDeleted == false, "restore did not flip isDeleted")
+        try require(repo.session(id: chat2.id)?.deleteExpireAt == nil, "restore did not clear delete expiry")
+    }
+
+    // MARK: - New: streaming chat orchestrator path
+
+    private static func validateStreamingChatOrchestrator() async throws {
+        let repository = InMemoryChatRepository()
+        let session = repository.createSession(title: "Streaming", modelConfigId: nil)
+        let model = ResolvedModelConfig(
+            id: UUID(),
+            provider: .openai,
+            name: "Test",
+            modelName: "gpt-test",
+            endpoint: URL(string: "https://example.com"),
+            apiKey: "sk-test",
+            temperature: 0.7,
+            maxTokens: 100
+        )
+        let orchestrator = ChatOrchestrator(
+            repository: repository,
+            aiService: StubAIService(events: [.token("Hel"), .token("lo"), .completed]),
+            redactor: PrivacyRedactor(),
+            contextBuilder: ContextBuilder(maxCharacters: 500)
+        )
+        let buffer = StreamingResponseBuffer()
+
+        let response = try await orchestrator.sendUserMessage(
+            "Hi",
+            in: session.id,
+            using: model,
+            tools: [],
+            streamingBuffer: buffer
+        )
+
+        try require(response == "Hello", "streaming chat aggregated text mismatch")
+        let final = await buffer.snapshot()
+        try require(final.text == "Hello", "buffer should reflect aggregated stream")
+        try require(final.isCompleted, "buffer should be marked completed at end of stream")
     }
 
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
