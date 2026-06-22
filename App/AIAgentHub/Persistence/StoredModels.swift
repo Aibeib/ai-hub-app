@@ -62,11 +62,22 @@ final class StoredChatSession {
     var isPinned: Bool
     var isDeleted: Bool
     var deleteExpireAt: Date?
+    var totalPromptTokens: Int
+    var totalCompletionTokens: Int
     @Relationship(deleteRule: .cascade, inverse: \StoredChatMessage.session) var messages: [StoredChatMessage]
 
     init(record: ChatSessionRecord) {
         id = record.id
-        apply(record)
+        title = record.title
+        modelConfigId = record.modelConfigId
+        createdAt = record.createdAt
+        updatedAt = record.updatedAt
+        isArchived = record.isArchived
+        isPinned = record.isPinned
+        isDeleted = record.isDeleted
+        deleteExpireAt = record.deleteExpireAt
+        totalPromptTokens = 0
+        totalCompletionTokens = 0
         messages = []
     }
 

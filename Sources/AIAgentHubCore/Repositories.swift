@@ -30,19 +30,38 @@ public protocol ChatRepository: Sendable {
     @discardableResult
     func appendMessage(_ message: ChatMessageDTO, to sessionId: UUID) -> ChatMessageDTO
     func messages(for sessionId: UUID) -> [ChatMessageDTO]
+    func deleteMessage(_ messageId: UUID, in sessionId: UUID)
     func renameSession(_ sessionId: UUID, title: String)
     func archiveSession(_ sessionId: UUID)
     func softDeleteSession(_ sessionId: UUID)
     func restoreSession(_ sessionId: UUID)
     func setSessionModel(_ sessionId: UUID, modelConfigId: UUID?)
     func setSessionPinned(_ sessionId: UUID, isPinned: Bool)
+    func recordTokenUsage(_ usage: TokenUsage, for sessionId: UUID)
+    func tokenUsage(for sessionId: UUID) -> TokenUsage
+    func search(query: String, limit: Int) -> [ChatMessageSearchHit]
     func purgeExpiredDeletedSessions()
     func clearAllSessions()
+}
+
+/// Result entry for full-text search across all stored messages.
+public struct ChatMessageSearchHit: Identifiable, Equatable, Sendable {
+    public var id: UUID { message.id }
+    public let sessionId: UUID
+    public let sessionTitle: String
+    public let message: ChatMessageDTO
+
+    public init(sessionId: UUID, sessionTitle: String, message: ChatMessageDTO) {
+        self.sessionId = sessionId
+        self.sessionTitle = sessionTitle
+        self.message = message
+    }
 }
 
 public final class InMemoryChatRepository: ChatRepository, @unchecked Sendable {
     private var sessionStorage: [UUID: ChatSessionRecord] = [:]
     private var messageStorage: [UUID: [ChatMessageDTO]] = [:]
+    private var usageStorage: [UUID: TokenUsage] = [:]
     private let clock: any Clock
     private let lock = NSLock()
 
@@ -171,6 +190,56 @@ public final class InMemoryChatRepository: ChatRepository, @unchecked Sendable {
             session.isPinned = isPinned
             session.updatedAt = clock.now
             sessionStorage[sessionId] = session
+        }
+    }
+
+    public func deleteMessage(_ messageId: UUID, in sessionId: UUID) {
+        lock.withLock {
+            messageStorage[sessionId]?.removeAll { $0.id == messageId }
+            if var session = sessionStorage[sessionId] {
+                session.updatedAt = clock.now
+                sessionStorage[sessionId] = session
+            }
+        }
+    }
+
+    public func recordTokenUsage(_ usage: TokenUsage, for sessionId: UUID) {
+        lock.withLock {
+            let existing = usageStorage[sessionId] ?? TokenUsage(promptTokens: 0, completionTokens: 0)
+            usageStorage[sessionId] = TokenUsage(
+                promptTokens: existing.promptTokens + usage.promptTokens,
+                completionTokens: existing.completionTokens + usage.completionTokens
+            )
+        }
+    }
+
+    public func tokenUsage(for sessionId: UUID) -> TokenUsage {
+        lock.withLock {
+            usageStorage[sessionId] ?? TokenUsage(promptTokens: 0, completionTokens: 0)
+        }
+    }
+
+    public func search(query: String, limit: Int) -> [ChatMessageSearchHit] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        let needle = trimmed.lowercased()
+
+        return lock.withLock {
+            var hits: [ChatMessageSearchHit] = []
+            for (sessionId, messages) in messageStorage {
+                guard let session = sessionStorage[sessionId], !session.isDeleted else { continue }
+                for message in messages where message.content.lowercased().contains(needle) {
+                    hits.append(
+                        ChatMessageSearchHit(
+                            sessionId: sessionId,
+                            sessionTitle: session.title,
+                            message: message
+                        )
+                    )
+                }
+            }
+            hits.sort { $0.message.timestamp > $1.message.timestamp }
+            return Array(hits.prefix(max(1, limit)))
         }
     }
 

@@ -175,6 +175,52 @@ final class SwiftDataChatRepository: ChatRepository, @unchecked Sendable {
         save()
     }
 
+    func deleteMessage(_ messageId: UUID, in sessionId: UUID) {
+        guard let session = fetchSession(id: sessionId) else { return }
+        if let stored = session.messages.first(where: { $0.id == messageId }) {
+            context.delete(stored)
+            session.updatedAt = clock.now
+            save()
+        }
+    }
+
+    func recordTokenUsage(_ usage: TokenUsage, for sessionId: UUID) {
+        guard let session = fetchSession(id: sessionId) else { return }
+        session.totalPromptTokens += usage.promptTokens
+        session.totalCompletionTokens += usage.completionTokens
+        save()
+    }
+
+    func tokenUsage(for sessionId: UUID) -> TokenUsage {
+        guard let session = fetchSession(id: sessionId) else {
+            return TokenUsage(promptTokens: 0, completionTokens: 0)
+        }
+        return TokenUsage(
+            promptTokens: session.totalPromptTokens,
+            completionTokens: session.totalCompletionTokens
+        )
+    }
+
+    func search(query: String, limit: Int) -> [ChatMessageSearchHit] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.isEmpty else { return [] }
+
+        var hits: [ChatMessageSearchHit] = []
+        for session in fetchAllSessions() where !session.isDeleted {
+            for stored in session.messages where stored.content.lowercased().contains(trimmed) {
+                hits.append(
+                    ChatMessageSearchHit(
+                        sessionId: session.id,
+                        sessionTitle: session.title,
+                        message: stored.dto
+                    )
+                )
+            }
+        }
+        hits.sort { $0.message.timestamp > $1.message.timestamp }
+        return Array(hits.prefix(max(1, limit)))
+    }
+
     func purgeExpiredDeletedSessions() {
         for session in fetchAllSessions() {
             if session.isDeleted, let deleteExpireAt = session.deleteExpireAt, deleteExpireAt <= clock.now {
