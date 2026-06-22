@@ -10,6 +10,7 @@ struct ValidationRunner {
             try validateSSEParsers()
             try validateSecretStore()
             try validateRepositories()
+            try await validateModelConfigurationFlow()
             try await validateChatOrchestrator()
             print("AIAgentHubCoreValidation: all checks passed")
         } catch {
@@ -122,6 +123,66 @@ struct ValidationRunner {
         try require(repository.sessions(includeDeleted: true).first?.deleteExpireAt != nil, "delete expiry missing")
     }
 
+    private static func validateModelConfigurationFlow() async throws {
+        let secrets = KeyValueSecretStore()
+        let repository = InMemoryModelConfigRepository()
+        let manager = ModelConfigurationManager(
+            repository: repository,
+            secretStore: secrets,
+            clock: FixedClock(now: Date(timeIntervalSince1970: 1_700_000_000))
+        )
+
+        let openAI = try manager.save(
+            ModelConfigurationDraft(
+                name: "OpenAI Work",
+                provider: .openai,
+                modelName: "gpt-4.1-mini",
+                baseURL: nil,
+                apiKey: "sk-openai",
+                temperature: 0.5,
+                maxTokens: 2_000,
+                isDefault: true,
+                isEnabled: true
+            )
+        )
+        let disabledClaude = try manager.save(
+            ModelConfigurationDraft(
+                name: "Claude Disabled",
+                provider: .anthropic,
+                modelName: "claude-sonnet-4-5",
+                baseURL: nil,
+                apiKey: "sk-claude",
+                temperature: 0.7,
+                maxTokens: 4_000,
+                isDefault: false,
+                isEnabled: false
+            )
+        )
+
+        try require(manager.enabledModels().map(\.id) == [openAI.id], "disabled models should not be enabled")
+        try require(manager.defaultModel()?.id == openAI.id, "default model mismatch")
+
+        let resolved = try manager.resolveDefaultModel()
+        try require(resolved.id == openAI.id, "resolved model id mismatch")
+        try require(resolved.apiKey == "sk-openai", "resolved API key mismatch")
+        try require(resolved.endpoint == ModelProvider.openai.defaultBaseURL, "default endpoint mismatch")
+
+        try manager.deleteModel(disabledClaude.id)
+        try require(repository.all().count == 1, "delete should remove model config")
+
+        let service = try manager.makeServiceForDefault(client: ValidationAIHTTPClient())
+        let session = InMemoryChatRepository().createSession(title: "Provider", modelConfigId: openAI.id)
+        let request = ChatRequest(
+            model: resolved,
+            messages: [ChatMessageDTO(role: .user, content: "Hello")],
+            temperature: resolved.temperature,
+            maxTokens: resolved.maxTokens
+        )
+        let events = try await awaitEvents(from: service.streamChat(request: request))
+        try require(events == [.token("provider-ok"), .completed], "provider service resolver mismatch")
+        try require(session.modelConfigId == openAI.id, "session should carry selected model")
+    }
+
     private static func validateChatOrchestrator() async throws {
         let repository = InMemoryChatRepository()
         let session = repository.createSession(title: "Chat", modelConfigId: nil)
@@ -159,6 +220,16 @@ struct ValidationRunner {
             throw ValidationError(message)
         }
     }
+
+    private static func awaitEvents(
+        from stream: AsyncThrowingStream<ChatStreamEvent, Error>
+    ) async throws -> [ChatStreamEvent] {
+        var events: [ChatStreamEvent] = []
+        for try await event in stream {
+            events.append(event)
+        }
+        return events
+    }
 }
 
 private struct ValidationError: Error, CustomStringConvertible {
@@ -193,5 +264,21 @@ private struct ValidationDangerousTool: Tool {
 
     func execute(arguments: [String: ToolArgument]) async throws -> ToolResult {
         ToolResult(displayText: "should not execute")
+    }
+}
+
+private struct ValidationAIHTTPClient: AIHTTPClient {
+    func bytes(for request: URLRequest) async throws -> AsyncThrowingStream<Data, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.yield("""
+            data: {"choices":[{"delta":{"content":"provider-ok"}}]}
+
+            """.data(using: .utf8)!)
+            continuation.yield("""
+            data: [DONE]
+
+            """.data(using: .utf8)!)
+            continuation.finish()
+        }
     }
 }

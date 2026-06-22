@@ -16,6 +16,7 @@
 		A10000000000000000000007 /* PrivacyAndLogsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* PrivacyAndLogsView.swift */; };
 		A10000000000000000000008 /* AIAgentHubCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A30000000000000000000002 /* AIAgentHubCore.framework */; };
 		A10000000000000000000009 /* AIAgentHubCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = A30000000000000000000002 /* AIAgentHubCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		A10000000000000000000010 /* AppRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* AppRuntime.swift */; };
 		A11000000000000000000001 /* DomainModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000001 /* DomainModels.swift */; };
 		A11000000000000000000002 /* PrivacyRedactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000002 /* PrivacyRedactor.swift */; };
 		A11000000000000000000003 /* Secrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000003 /* Secrets.swift */; };
@@ -26,6 +27,7 @@
 		A11000000000000000000008 /* AIHTTPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000008 /* AIHTTPClient.swift */; };
 		A11000000000000000000009 /* DeviceConnections.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000009 /* DeviceConnections.swift */; };
 		A11000000000000000000010 /* KeychainSecretStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000010 /* KeychainSecretStore.swift */; };
+		A11000000000000000000011 /* ModelConfigurationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000011 /* ModelConfigurationManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -60,6 +62,7 @@
 		A20000000000000000000005 /* ModelConfigListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/ModelConfigListView.swift; sourceTree = "<group>"; };
 		A20000000000000000000006 /* DeviceManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/DeviceManagementView.swift; sourceTree = "<group>"; };
 		A20000000000000000000007 /* PrivacyAndLogsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/PrivacyAndLogsView.swift; sourceTree = "<group>"; };
+		A20000000000000000000008 /* AppRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRuntime.swift; sourceTree = "<group>"; };
 		A21000000000000000000001 /* DomainModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomainModels.swift; sourceTree = "<group>"; };
 		A21000000000000000000002 /* PrivacyRedactor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyRedactor.swift; sourceTree = "<group>"; };
 		A21000000000000000000003 /* Secrets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Secrets.swift; sourceTree = "<group>"; };
@@ -70,6 +73,7 @@
 		A21000000000000000000008 /* AIHTTPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIHTTPClient.swift; sourceTree = "<group>"; };
 		A21000000000000000000009 /* DeviceConnections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceConnections.swift; sourceTree = "<group>"; };
 		A21000000000000000000010 /* KeychainSecretStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainSecretStore.swift; sourceTree = "<group>"; };
+		A21000000000000000000011 /* ModelConfigurationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelConfigurationManager.swift; sourceTree = "<group>"; };
 		A30000000000000000000001 /* AIAgentHub.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AIAgentHub.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A30000000000000000000002 /* AIAgentHubCore.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = AIAgentHubCore.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -114,6 +118,7 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000001 /* AIAgentHubApp.swift */,
+				A20000000000000000000008 /* AppRuntime.swift */,
 				A20000000000000000000002 /* StoredModels.swift */,
 				A20000000000000000000003 /* RootView.swift */,
 				A20000000000000000000004 /* ChatHomeView.swift */,
@@ -145,6 +150,7 @@
 				A21000000000000000000008 /* AIHTTPClient.swift */,
 				A21000000000000000000009 /* DeviceConnections.swift */,
 				A21000000000000000000010 /* KeychainSecretStore.swift */,
+				A21000000000000000000011 /* ModelConfigurationManager.swift */,
 			);
 			path = AIAgentHubCore;
 			sourceTree = "<group>";
@@ -244,6 +250,7 @@
 				A10000000000000000000005 /* ModelConfigListView.swift in Sources */,
 				A10000000000000000000006 /* DeviceManagementView.swift in Sources */,
 				A10000000000000000000007 /* PrivacyAndLogsView.swift in Sources */,
+				A10000000000000000000010 /* AppRuntime.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -261,6 +268,7 @@
 				A11000000000000000000008 /* AIHTTPClient.swift in Sources */,
 				A11000000000000000000009 /* DeviceConnections.swift in Sources */,
 				A11000000000000000000010 /* KeychainSecretStore.swift in Sources */,
+				A11000000000000000000011 /* ModelConfigurationManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

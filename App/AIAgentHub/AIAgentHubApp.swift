@@ -5,6 +5,7 @@ import AIAgentHubCore
 @main
 struct AIAgentHubApp: App {
     private let container: ModelContainer
+    @State private var runtime = AppRuntime()
 
     init() {
         do {
@@ -23,8 +24,8 @@ struct AIAgentHubApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .environment(runtime)
         }
         .modelContainer(container)
     }
 }
-

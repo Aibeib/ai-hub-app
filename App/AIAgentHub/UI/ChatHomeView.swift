@@ -2,27 +2,16 @@ import SwiftUI
 import AIAgentHubCore
 
 struct ChatHomeView: View {
-    @State private var repository = InMemoryChatRepository()
+    @Environment(AppRuntime.self) private var runtime
     @State private var selectedSessionId: UUID?
     @State private var draft = ""
     @State private var isSending = false
     @State private var errorMessage: String?
 
-    private let model = ResolvedModelConfig(
-        id: UUID(),
-        provider: .openai,
-        name: "Demo OpenAI",
-        modelName: "gpt-4.1-mini",
-        endpoint: URL(string: "https://api.openai.com/v1/chat/completions"),
-        apiKey: nil,
-        temperature: 0.7,
-        maxTokens: 2_048
-    )
-
     var body: some View {
         VStack(spacing: 0) {
             if let selectedSessionId {
-                ChatTranscriptView(messages: repository.messages(for: selectedSessionId))
+                ChatTranscriptView(messages: runtime.chatRepository.messages(for: selectedSessionId))
             } else {
                 ContentUnavailableView(
                     "No chat selected",
@@ -54,7 +43,10 @@ struct ChatHomeView: View {
         .navigationTitle("Chat")
         .toolbar {
             Button {
-                let session = repository.createSession(title: "New Chat", modelConfigId: nil)
+                let session = runtime.chatRepository.createSession(
+                    title: "New Chat",
+                    modelConfigId: runtime.modelManager.defaultModel()?.id
+                )
                 selectedSessionId = session.id
             } label: {
                 Label("New Chat", systemImage: "plus")
@@ -72,7 +64,10 @@ struct ChatHomeView: View {
 
     private func send() async {
         guard let selectedSessionId else {
-            let session = repository.createSession(title: "New Chat", modelConfigId: nil)
+            let session = runtime.chatRepository.createSession(
+                title: "New Chat",
+                modelConfigId: runtime.modelManager.defaultModel()?.id
+            )
             self.selectedSessionId = session.id
             await send()
             return
@@ -84,13 +79,15 @@ struct ChatHomeView: View {
         defer { isSending = false }
 
         do {
+            let resolvedModel = try runtime.modelManager.resolveDefaultModel()
+            let aiService = try runtime.modelManager.makeServiceForDefault()
             let orchestrator = ChatOrchestrator(
-                repository: repository,
-                aiService: StubAIService(events: [.token("Demo response. Configure an API key to call a real model."), .completed]),
+                repository: runtime.chatRepository,
+                aiService: aiService,
                 redactor: PrivacyRedactor(),
                 contextBuilder: ContextBuilder()
             )
-            try await orchestrator.sendUserMessage(message, in: selectedSessionId, using: model)
+            try await orchestrator.sendUserMessage(message, in: selectedSessionId, using: resolvedModel)
         } catch {
             draft = message
             errorMessage = error.localizedDescription
@@ -121,4 +118,3 @@ private struct ChatTranscriptView: View {
         }
     }
 }
-
