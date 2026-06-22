@@ -16,7 +16,7 @@ final class AppRuntime: AppAuthorizationPresenter {
     let deviceRepository: InMemoryBoundDeviceRepository
     let remoteCommandLogStore: InMemoryRemoteCommandLogStore
     let deviceCoordinator: DeviceCoordinator
-    let deviceConnectionService: MockDeviceConnectionService
+    let deviceConnectionService: any DeviceConnectionService
     private let authorizationBroker: AppAuthorizationBroker
     var modelConfigs: [ModelConfigRecord]
     var pendingAuthorization: AuthorizationRequest?
@@ -45,10 +45,8 @@ final class AppRuntime: AppAuthorizationPresenter {
         )
         deviceRepository = InMemoryBoundDeviceRepository()
         remoteCommandLogStore = InMemoryRemoteCommandLogStore()
-        deviceConnectionService = MockDeviceConnectionService(
-            devices: [
-                DiscoveredDevice(name: "Demo Mac", host: "192.168.1.20", port: 41_731, kind: .mac)
-            ]
+        deviceConnectionService = BonjourDeviceDiscoveryService(
+            fallbackSender: MockDeviceConnectionService()
         )
         deviceCoordinator = DeviceCoordinator(
             connectionService: deviceConnectionService,
