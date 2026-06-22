@@ -198,15 +198,38 @@ public final class ToolRegistry: @unchecked Sendable {
     private let tools: [String: any Tool]
     private let auditStore: any AuditLogStore
     private let authorization: any ToolAuthorization
+    private let retentionDaysProvider: @Sendable () -> Int
+    private let clock: any Clock
 
     public init(
         tools: [any Tool],
         auditStore: any AuditLogStore,
-        authorization: any ToolAuthorization
+        authorization: any ToolAuthorization,
+        retentionDays: Int = 30,
+        clock: any Clock = SystemClock()
     ) {
         self.tools = Dictionary(uniqueKeysWithValues: tools.map { ($0.definition.name, $0) })
         self.auditStore = auditStore
         self.authorization = authorization
+        let frozen = max(1, retentionDays)
+        self.retentionDaysProvider = { frozen }
+        self.clock = clock
+    }
+
+    /// Variant that takes a live closure, so the retention window updates immediately when the
+    /// user changes their privacy preference without rebuilding the registry.
+    public init(
+        tools: [any Tool],
+        auditStore: any AuditLogStore,
+        authorization: any ToolAuthorization,
+        retentionDaysProvider: @escaping @Sendable () -> Int,
+        clock: any Clock = SystemClock()
+    ) {
+        self.tools = Dictionary(uniqueKeysWithValues: tools.map { ($0.definition.name, $0) })
+        self.auditStore = auditStore
+        self.authorization = authorization
+        self.retentionDaysProvider = retentionDaysProvider
+        self.clock = clock
     }
 
     public var definitions: [ToolDefinition] {
@@ -233,13 +256,19 @@ public final class ToolRegistry: @unchecked Sendable {
             decision = .approved
         }
 
+        let now = clock.now
+        let retentionDays = max(1, retentionDaysProvider())
+        let expiresAt = now.addingTimeInterval(TimeInterval(retentionDays) * 86_400)
+
         await auditStore.append(
             ToolExecutionLogEntry(
                 sessionId: sessionId,
                 toolName: toolName,
                 riskLevel: tool.riskLevel,
                 decision: decision,
-                summary: "\(tool.definition.name): \(decision.rawValue)"
+                summary: "\(tool.definition.name): \(decision.rawValue)",
+                createdAt: now,
+                expiresAt: expiresAt
             )
         )
 

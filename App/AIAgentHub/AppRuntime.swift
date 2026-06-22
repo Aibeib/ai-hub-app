@@ -19,6 +19,7 @@ final class AppRuntime: AppAuthorizationPresenter {
     let deviceConnectionService: any DeviceConnectionService
     let privacyPreferencesRepository: any PrivacyPreferencesRepository
     let generationTracker: ActiveGenerationTracker
+    private let retentionDaysBox: RetentionDaysBox
     private let authorizationBroker: AppAuthorizationBroker
     var modelConfigs: [ModelConfigRecord]
     var sessions: [ChatSessionRecord]
@@ -42,10 +43,13 @@ final class AppRuntime: AppAuthorizationPresenter {
         self.auditStore = auditStore
         memoryAuditStore = nil
         authorizationBroker = AppAuthorizationBroker()
+        let retentionBox = RetentionDaysBox(days: 30)
+        retentionDaysBox = retentionBox
         toolRegistry = ToolRegistry(
             tools: [TextSummaryTool()],
             auditStore: auditStore,
-            authorization: authorizationBroker
+            authorization: authorizationBroker,
+            retentionDaysProvider: { retentionBox.days }
         )
         deviceRepository = InMemoryBoundDeviceRepository()
         remoteCommandLogStore = InMemoryRemoteCommandLogStore()
@@ -68,6 +72,7 @@ final class AppRuntime: AppAuthorizationPresenter {
         modelConfigs = []
         sessions = []
         privacyPreferences = privacyPreferencesRepository.load()
+        retentionBox.days = privacyPreferences.retainAuditLogsDays
         seedDefaultsIfNeeded()
         refreshSessions()
     }
@@ -80,10 +85,13 @@ final class AppRuntime: AppAuthorizationPresenter {
         let memoryAuditStore = InMemoryAuditLogStore()
         self.memoryAuditStore = memoryAuditStore
         authorizationBroker = AppAuthorizationBroker()
+        let retentionBox = RetentionDaysBox(days: 30)
+        retentionDaysBox = retentionBox
         toolRegistry = ToolRegistry(
             tools: [TextSummaryTool()],
             auditStore: memoryAuditStore,
-            authorization: authorizationBroker
+            authorization: authorizationBroker,
+            retentionDaysProvider: { retentionBox.days }
         )
         deviceRepository = InMemoryBoundDeviceRepository()
         remoteCommandLogStore = InMemoryRemoteCommandLogStore()
@@ -108,6 +116,7 @@ final class AppRuntime: AppAuthorizationPresenter {
         modelConfigs = []
         sessions = []
         privacyPreferences = privacyPreferencesRepository.load()
+        retentionBox.days = privacyPreferences.retainAuditLogsDays
         seedDefaultsIfNeeded()
         refreshSessions()
     }
@@ -123,6 +132,7 @@ final class AppRuntime: AppAuthorizationPresenter {
     func updatePrivacyPreferences(_ preferences: PrivacyPreferences) {
         privacyPreferences = preferences
         privacyPreferencesRepository.save(preferences)
+        retentionDaysBox.days = preferences.retainAuditLogsDays
     }
 
     @discardableResult
@@ -178,13 +188,18 @@ final class AppRuntime: AppAuthorizationPresenter {
     }
 
     func exportMarkdown(for sessionId: UUID) -> String? {
+        exportConversation(for: sessionId, format: .markdown)
+    }
+
+    func exportConversation(for sessionId: UUID, format: ConversationExportFormat) -> String? {
         guard let session = chatRepository.session(id: sessionId) else { return nil }
         let messages = chatRepository.messages(for: sessionId)
         let usage = chatRepository.tokenUsage(for: sessionId)
         return ConversationExporter().export(
             sessionTitle: session.title,
             messages: messages,
-            tokenUsage: usage.promptTokens + usage.completionTokens > 0 ? usage : nil
+            tokenUsage: usage.promptTokens + usage.completionTokens > 0 ? usage : nil,
+            format: format
         )
     }
 
@@ -280,5 +295,22 @@ extension AppRuntime {
     func resolvePendingAuthorization(approved: Bool) {
         pendingAuthorization?.continuation.resume(returning: approved)
         pendingAuthorization = nil
+    }
+}
+
+/// Tiny reference-typed box holding the current audit-log retention day count. Allows the
+/// closure handed to `ToolRegistry` to read the up-to-date value without rebuilding the
+/// registry every time the user moves the retention slider.
+final class RetentionDaysBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: Int
+
+    var days: Int {
+        get { lock.withLock { storage } }
+        set { lock.withLock { storage = max(1, newValue) } }
+    }
+
+    init(days: Int) {
+        self.storage = max(1, days)
     }
 }
