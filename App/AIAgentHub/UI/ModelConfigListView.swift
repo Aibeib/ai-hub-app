@@ -31,8 +31,9 @@ struct ModelConfigListView: View {
                 .padding(.horizontal, DS.Space.xl)
                 .padding(.top, DS.Space.lg)
 
-                DSSectionHeader("Active The Third-Party Providers") {
-                    AnyView(
+                DSSectionHeader(
+                    "Active The Third-Party Providers",
+                    trailing: AnyView(
                         Button {
                             editingConfig = nil
                             isShowingEditor = true
@@ -43,7 +44,7 @@ struct ModelConfigListView: View {
                         }
                         .buttonStyle(.plain)
                     )
-                }
+                )
 
                 if enabledModels.isEmpty {
                     DSEmptyState(

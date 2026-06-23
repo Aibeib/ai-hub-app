@@ -18,7 +18,16 @@ final class StoredModelConfig {
 
     init(record: ModelConfigRecord) {
         id = record.id
-        apply(record)
+        name = record.name
+        providerRawValue = record.provider.rawValue
+        modelName = record.modelName
+        baseURLString = record.baseURL?.absoluteString
+        temperature = record.temperature
+        maxTokens = record.maxTokens
+        isDefault = record.isDefault
+        isEnabled = record.isEnabled
+        createdAt = record.createdAt
+        updatedAt = record.updatedAt
     }
 
     func apply(_ record: ModelConfigRecord) {
@@ -156,7 +165,13 @@ final class StoredToolExecutionLog {
 
     init(entry: ToolExecutionLogEntry) {
         id = entry.id
-        apply(entry)
+        sessionId = entry.sessionId
+        toolName = entry.toolName
+        riskLevelRawValue = entry.riskLevel.rawValue
+        decisionRawValue = entry.decision.rawValue
+        summary = entry.summary
+        createdAt = entry.createdAt
+        expiresAt = entry.expiresAt
     }
 
     func apply(_ entry: ToolExecutionLogEntry) {
@@ -195,7 +210,12 @@ final class StoredBoundDevice {
 
     init(device: BoundDevice) {
         id = device.id
-        apply(device)
+        name = device.name
+        host = device.host
+        port = device.port
+        kindRawValue = device.kind.rawValue
+        pairedAt = device.pairedAt
+        lastSeenAt = device.lastSeenAt
     }
 
     func apply(_ device: BoundDevice) {
@@ -219,4 +239,3 @@ final class StoredBoundDevice {
         )
     }
 }
-

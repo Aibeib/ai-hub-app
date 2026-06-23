@@ -29,8 +29,9 @@ struct DeviceManagementView: View {
                 .padding(.top, DS.Space.lg)
 
                 // Discovered
-                DSSectionHeader("Discovered") {
-                    AnyView(
+                DSSectionHeader(
+                    "Discovered",
+                    trailing: AnyView(
                         HStack(spacing: DS.Space.sm) {
                             if isScanning {
                                 ProgressView().scaleEffect(0.7)
@@ -62,7 +63,7 @@ struct DeviceManagementView: View {
                             .buttonStyle(.plain)
                         }
                     )
-                }
+                )
 
                 if discoveredDevices.isEmpty {
                     HStack(spacing: DS.Space.sm) {

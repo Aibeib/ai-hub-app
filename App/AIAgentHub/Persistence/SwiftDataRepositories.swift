@@ -3,7 +3,7 @@ import SwiftData
 import AIAgentHubCore
 
 @MainActor
-final class SwiftDataModelConfigRepository: ModelConfigRepository, @unchecked Sendable {
+final class SwiftDataModelConfigRepository: @preconcurrency ModelConfigRepository, @unchecked Sendable {
     private let context: ModelContext
 
     init(context: ModelContext) {
@@ -59,7 +59,7 @@ final class SwiftDataModelConfigRepository: ModelConfigRepository, @unchecked Se
 }
 
 @MainActor
-final class SwiftDataChatRepository: ChatRepository, @unchecked Sendable {
+final class SwiftDataChatRepository: @preconcurrency ChatRepository, @unchecked Sendable {
     private let context: ModelContext
     private let clock: any Clock
 

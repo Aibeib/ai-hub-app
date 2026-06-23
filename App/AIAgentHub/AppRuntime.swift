@@ -66,7 +66,6 @@ final class AppRuntime: AppAuthorizationPresenter {
         privacyPreferencesRepository = UserDefaultsPrivacyPreferencesRepository()
         lastSessionStore = UserDefaultsLastSessionStore()
         generationTracker = ActiveGenerationTracker()
-        authorizationBroker.presenter = self
         modelManager = ModelConfigurationManager(
             repository: modelRepository,
             secretStore: secretStore
@@ -74,6 +73,7 @@ final class AppRuntime: AppAuthorizationPresenter {
         modelConfigs = []
         sessions = []
         privacyPreferences = privacyPreferencesRepository.load()
+        authorizationBroker.presenter = self
         retentionBox.days = privacyPreferences.retainAuditLogsDays
         seedDefaultsIfNeeded()
         refreshSessions()
@@ -111,7 +111,6 @@ final class AppRuntime: AppAuthorizationPresenter {
         privacyPreferencesRepository = InMemoryPrivacyPreferencesRepository()
         lastSessionStore = InMemoryLastSessionStore()
         generationTracker = ActiveGenerationTracker()
-        authorizationBroker.presenter = self
         modelManager = ModelConfigurationManager(
             repository: modelRepository,
             secretStore: secretStore
@@ -119,6 +118,7 @@ final class AppRuntime: AppAuthorizationPresenter {
         modelConfigs = []
         sessions = []
         privacyPreferences = privacyPreferencesRepository.load()
+        authorizationBroker.presenter = self
         retentionBox.days = privacyPreferences.retainAuditLogsDays
         seedDefaultsIfNeeded()
         refreshSessions()

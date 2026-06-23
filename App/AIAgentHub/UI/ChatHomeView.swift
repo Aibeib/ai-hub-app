@@ -169,7 +169,7 @@ struct ChatHomeView: View {
 
             // Session list
             ScrollView {
-                LazyVStack(spacing: 2) {
+                LazyVStack(spacing: 2, pinnedViews: [.sectionHeaders]) {
                     if visibleSessions.isEmpty {
                         Text(searchQuery.isEmpty ? "No conversations yet." : "No matches.")
                             .font(DS.Typography.caption)
@@ -178,25 +178,32 @@ struct ChatHomeView: View {
                             .padding(.horizontal, DS.Space.lg)
                             .padding(.vertical, DS.Space.md)
                     } else {
-                        ForEach(visibleSessions) { session in
-                            SessionRow(
-                                session: session,
-                                isSelected: session.id == selectedSessionId,
-                                preview: messagePreview(for: session),
-                                onSelect: {
-                                    withAnimation(DS.Motion.springSnappy) {
-                                        selectedSessionId = session.id
-                                    }
-                                },
-                                onPin: { runtime.togglePin(session.id) },
-                                onDelete: {
-                                    runtime.deleteSession(session.id)
-                                    if selectedSessionId == session.id {
-                                        selectedSessionId = nil
-                                    }
+                        let groups = SessionDateGrouper().group(visibleSessions)
+                        ForEach(groups, id: \.bucket) { group in
+                            Section {
+                                ForEach(group.sessions) { session in
+                                    SessionRow(
+                                        session: session,
+                                        isSelected: session.id == selectedSessionId,
+                                        preview: messagePreview(for: session),
+                                        onSelect: {
+                                            withAnimation(DS.Motion.springSnappy) {
+                                                selectedSessionId = session.id
+                                            }
+                                        },
+                                        onPin: { runtime.togglePin(session.id) },
+                                        onDelete: {
+                                            runtime.deleteSession(session.id)
+                                            if selectedSessionId == session.id {
+                                                selectedSessionId = nil
+                                            }
+                                        }
+                                    )
+                                    .padding(.horizontal, DS.Space.xs)
                                 }
-                            )
-                            .padding(.horizontal, DS.Space.xs)
+                            } header: {
+                                SessionGroupHeader(title: group.bucket.title)
+                            }
                         }
                     }
                 }
@@ -253,7 +260,7 @@ struct ChatHomeView: View {
                     }
                     Text("·")
                         .foregroundStyle(DS.Palette.textTertiary)
-                    Text(session.createdAt, format: .dateTime.month().day().hour().minute())
+                    RelativeTimestamp(date: session.createdAt)
                         .font(DS.Typography.caption)
                         .foregroundStyle(DS.Palette.textTertiary)
                     let usage = runtime.tokenUsage(for: session.id)
@@ -386,7 +393,11 @@ struct ChatHomeView: View {
                         }
 
                         if streamingIsActive {
-                            StreamingBubble(text: streamingText)
+                            StreamingBubble(
+                                text: streamingText,
+                                modelName: runtime.resolvedModelName(for: session.id)
+                                    ?? runtime.modelManager.defaultModel()?.name
+                            )
                                 .id("__streaming__")
                         }
                     }
@@ -552,12 +563,13 @@ struct ChatHomeView: View {
                 streamingBuffer: buffer
             )
         } onError: { error in
+            let mapped = ErrorMessageMapper.message(for: error)
             lastFailedSend = FailedSend(
                 sessionId: session.id,
                 message: raw,
-                errorDescription: error.localizedDescription
+                errorDescription: mapped.detail
             )
-            errorMessage = error.localizedDescription
+            errorMessage = mapped.detail
         }
     }
 
@@ -640,12 +652,13 @@ struct ChatHomeView: View {
                 streamingBuffer: buffer
             )
         } onError: { error in
+            let mapped = ErrorMessageMapper.message(for: error)
             lastFailedSend = FailedSend(
                 sessionId: failed.sessionId,
                 message: failed.message,
-                errorDescription: error.localizedDescription
+                errorDescription: mapped.detail
             )
-            errorMessage = error.localizedDescription
+            errorMessage = mapped.detail
         }
     }
 
@@ -674,7 +687,7 @@ struct ChatHomeView: View {
                     streamingBuffer: buffer
                 )
             } onError: { error in
-                errorMessage = error.localizedDescription
+                errorMessage = ErrorMessageMapper.message(for: error).detail
             }
         }
     }
@@ -689,7 +702,7 @@ struct ChatHomeView: View {
             )
         } onError: { error in
             // Don't refill draft for regenerate — there's no draft text to restore.
-            errorMessage = error.localizedDescription
+            errorMessage = ErrorMessageMapper.message(for: error).detail
         }
     }
 
@@ -803,7 +816,7 @@ private struct SessionRow: View {
 
                 Spacer(minLength: 4)
 
-                Text(session.updatedAt, style: .relative)
+                RelativeTimestamp(date: session.updatedAt)
                     .font(DS.Typography.captionSmall)
                     .foregroundStyle(DS.Palette.textTertiary)
                     .lineLimit(1)
@@ -919,7 +932,7 @@ private struct UserBubble: View {
                     )
                     .textSelection(.enabled)
 
-                Text(message.timestamp, style: .time)
+                RelativeTimestamp(date: message.timestamp)
                     .font(DS.Typography.captionSmall)
                     .foregroundStyle(DS.Palette.textTertiary)
             }
@@ -946,7 +959,7 @@ private struct AssistantBubble: View {
                         .foregroundStyle(DS.Palette.textSecondary)
                     Text("·")
                         .foregroundStyle(DS.Palette.textTertiary)
-                    Text(timestamp, style: .time)
+                    RelativeTimestamp(date: timestamp)
                         .font(DS.Typography.captionSmall)
                         .foregroundStyle(DS.Palette.textTertiary)
                 }
@@ -957,7 +970,7 @@ private struct AssistantBubble: View {
                         case let .inline(content):
                             InlineMarkdownText(content: content)
                         case let .code(language, body):
-                            CodeBlockView(language: language, body: body)
+                            CodeBlockView(language: language, code: body)
                         }
                     }
                 }
@@ -979,6 +992,7 @@ private struct AssistantBubble: View {
 
 private struct StreamingBubble: View {
     let text: String
+    var modelName: String? = nil
     @State private var phase: Double = 0
 
     var body: some View {
@@ -990,6 +1004,13 @@ private struct StreamingBubble: View {
                     Text("Assistant")
                         .font(DS.Typography.subheadline)
                         .foregroundStyle(DS.Palette.textSecondary)
+                    if let modelName {
+                        Text("·")
+                            .foregroundStyle(DS.Palette.textTertiary)
+                        Text(modelName)
+                            .font(DS.Typography.captionSmall.monospacedDigit())
+                            .foregroundStyle(DS.Palette.textTertiary)
+                    }
                     DSStatusDot(status: .live, animated: true)
                     Text("typing")
                         .font(DS.Typography.captionSmall)
@@ -1382,7 +1403,7 @@ private struct InlineMarkdownText: View {
 
 private struct CodeBlockView: View {
     let language: String?
-    let body: String
+    let code: String
 
     @State private var copied = false
 
@@ -1412,7 +1433,7 @@ private struct CodeBlockView: View {
             .background(DS.Palette.surface.opacity(0.6))
 
             ScrollView(.horizontal, showsIndicators: false) {
-                Text(body)
+                Text(code)
                     .font(DS.Typography.mono)
                     .foregroundStyle(DS.Palette.textPrimary)
                     .textSelection(.enabled)
@@ -1434,10 +1455,10 @@ private struct CodeBlockView: View {
 
     private func copy() {
         #if canImport(UIKit)
-        UIPasteboard.general.string = body
+        UIPasteboard.general.string = code
         #elseif canImport(AppKit)
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(body, forType: .string)
+        NSPasteboard.general.setString(code, forType: .string)
         #endif
         withAnimation(DS.Motion.springSnappy) { copied = true }
         Task {
@@ -1491,5 +1512,48 @@ private struct SlashCommandSuggestions: View {
                 .stroke(DS.Palette.border, lineWidth: 0.5)
         )
         .dsShadow(DS.Shadow.subtle())
+    }
+}
+
+// MARK: - Auto-refreshing relative timestamp
+
+/// Render a date as a relative timestamp, refreshing once per minute via TimelineView. Inherits
+/// font/foreground from the surrounding context so it slots straight into HStacks without extra
+/// modifiers.
+struct RelativeTimestamp: View {
+    let date: Date
+
+    var body: some View {
+        TimelineView(.everyMinute) { context in
+            // Recompute relative to the actual current time on each tick so "Xm ago" advances.
+            Text(RelativeTimeFormatter(clock: FixedSystemClock(now: context.date)).string(from: date))
+        }
+    }
+}
+
+/// SystemClock-shaped adapter that returns whatever date you hand it. Used only inside the
+/// auto-refresh timestamp; in production data and in tests we use the SystemClock / FixedClock
+/// from the core package.
+private struct FixedSystemClock: AIAgentHubCore.Clock {
+    let now: Date
+}
+
+// MARK: - Sidebar section header
+
+private struct SessionGroupHeader: View {
+    let title: String
+
+    var body: some View {
+        HStack {
+            Text(title.uppercased())
+                .font(.system(.caption2, design: .default).weight(.semibold))
+                .tracking(1.6)
+                .foregroundStyle(DS.Palette.textTertiary)
+            Spacer()
+        }
+        .padding(.horizontal, DS.Space.lg)
+        .padding(.top, DS.Space.md)
+        .padding(.bottom, DS.Space.xxs)
+        .background(DS.Palette.surfaceRaised)
     }
 }

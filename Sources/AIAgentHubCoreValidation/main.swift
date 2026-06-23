@@ -45,6 +45,9 @@ struct ValidationRunner {
             try validateBookmarkToggle()
             try validateSlashCommandParser()
             try validateTokenEstimator()
+            try validateRelativeTimeFormatter()
+            try validateSessionDateGrouper()
+            try validateErrorMessageMapper()
             print("AIAgentHubCoreValidation: all checks passed")
         } catch {
             fputs("AIAgentHubCoreValidation failed: \(error)\n", stderr)
@@ -698,6 +701,132 @@ struct ValidationRunner {
         if !condition() {
             throw ValidationError(message)
         }
+    }
+
+    // MARK: - Round 24: relative time formatter
+
+    private static func validateRelativeTimeFormatter() throws {
+        let now = Date(timeIntervalSince1970: 1_750_000_000) // arbitrary fixed instant
+        let clock = FixedClock(now: now)
+        let formatter = RelativeTimeFormatter(clock: clock)
+
+        try require(formatter.string(from: now) == "just now", "now → just now")
+        try require(formatter.string(from: now.addingTimeInterval(-30)) == "just now", "<60s → just now")
+
+        let fiveMin = formatter.string(from: now.addingTimeInterval(-5 * 60))
+        try require(fiveMin == "5m ago", "5m ago — got '\(fiveMin)'")
+
+        let twoHours = formatter.string(from: now.addingTimeInterval(-2 * 3600))
+        try require(twoHours == "2h ago", "2h ago — got '\(twoHours)'")
+
+        // Yesterday: same calendar boundary as `now` minus one day
+        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: now)!
+        try require(formatter.string(from: yesterday) == "yesterday", "yesterday — got '\(formatter.string(from: yesterday))'")
+    }
+
+    // MARK: - Round 25: session date grouper
+
+    private static func validateSessionDateGrouper() throws {
+        let now = Date(timeIntervalSince1970: 1_750_000_000)
+        let clock = FixedClock(now: now)
+        let grouper = SessionDateGrouper(clock: clock)
+
+        let calendar = Calendar.current
+        let today = ChatSessionRecord(title: "today", createdAt: now, updatedAt: now)
+        let pinned = ChatSessionRecord(
+            title: "pinned",
+            createdAt: now.addingTimeInterval(-30 * 86_400),
+            updatedAt: now.addingTimeInterval(-30 * 86_400),
+            isPinned: true
+        )
+        let yesterday = ChatSessionRecord(
+            title: "yest",
+            createdAt: calendar.date(byAdding: .day, value: -1, to: now)!,
+            updatedAt: calendar.date(byAdding: .day, value: -1, to: now)!
+        )
+        let threeDaysAgo = ChatSessionRecord(
+            title: "3d",
+            createdAt: calendar.date(byAdding: .day, value: -3, to: now)!,
+            updatedAt: calendar.date(byAdding: .day, value: -3, to: now)!
+        )
+        let twoWeeksAgo = ChatSessionRecord(
+            title: "2w",
+            createdAt: calendar.date(byAdding: .day, value: -14, to: now)!,
+            updatedAt: calendar.date(byAdding: .day, value: -14, to: now)!
+        )
+        let twoMonthsAgo = ChatSessionRecord(
+            title: "older",
+            createdAt: calendar.date(byAdding: .day, value: -60, to: now)!,
+            updatedAt: calendar.date(byAdding: .day, value: -60, to: now)!
+        )
+
+        let groups = grouper.group([pinned, today, yesterday, threeDaysAgo, twoWeeksAgo, twoMonthsAgo])
+
+        // Pinned must come first
+        try require(groups.first?.bucket == .pinned, "pinned should be first group")
+        try require(groups.first?.sessions.count == 1, "pinned should have 1 session")
+
+        let bucketsByTitle = Dictionary(uniqueKeysWithValues: groups.map { ($0.bucket, $0.sessions.map(\.title)) })
+        try require(bucketsByTitle[.today] == ["today"], "today bucket wrong")
+        try require(bucketsByTitle[.yesterday] == ["yest"], "yesterday wrong")
+        try require(bucketsByTitle[.thisWeek] == ["3d"], "this week wrong")
+        try require(bucketsByTitle[.thisMonth] == ["2w"], "this month wrong")
+        try require(bucketsByTitle[.earlier] == ["older"], "earlier wrong")
+
+        // Empty input
+        try require(grouper.group([]).isEmpty, "empty input → empty groups")
+    }
+
+    // MARK: - Round 27: error message mapper
+
+    private static func validateErrorMessageMapper() throws {
+        // Each enum case maps to a non-empty, classified message
+        let cases: [any Error] = [
+            ModelConfigurationError.missingAPIKey(UUID()),
+            ModelConfigurationError.noEnabledModel,
+            ChatOrchestratorError.thirdPartyDisabled(provider: .openai),
+            ChatOrchestratorError.noUserMessageToReplay,
+            ToolExecutionError.toolNotFound("x"),
+            ToolExecutionError.authorizationCancelled,
+            AIHTTPClientError.missingEndpoint,
+            AIHTTPClientError.missingAPIKey,
+            AIHTTPClientError.invalidResponse,
+            AIHTTPClientError.httpStatus(401),
+            AIHTTPClientError.httpStatus(429),
+            AIHTTPClientError.httpStatus(500),
+            AIHTTPClientError.httpStatus(404),
+            CancellationError(),
+        ]
+
+        for error in cases {
+            let mapped = ErrorMessageMapper.message(for: error)
+            try require(!mapped.title.isEmpty, "title empty for \(error)")
+            try require(!mapped.detail.isEmpty, "detail empty for \(error)")
+            // The detail should never just say the raw error description for known cases
+            let raw = String(describing: error)
+            try require(mapped.detail != raw, "detail still raw for \(error)")
+        }
+
+        // HTTP status branching
+        let unauthorized = ErrorMessageMapper.message(for: AIHTTPClientError.httpStatus(401))
+        try require(unauthorized.title.contains("Authentication"), "401 should mention auth")
+        let rate = ErrorMessageMapper.message(for: AIHTTPClientError.httpStatus(429))
+        try require(rate.title.contains("Rate"), "429 should mention rate")
+        let server = ErrorMessageMapper.message(for: AIHTTPClientError.httpStatus(503))
+        try require(server.title.contains("Provider"), "5xx should mention provider")
+
+        // Third-party message names the provider so users know which one to enable
+        let blocked = ErrorMessageMapper.message(for: ChatOrchestratorError.thirdPartyDisabled(provider: .openai))
+        try require(blocked.title.contains("OpenAI"), "third-party error should name the provider")
+
+        // NSURLError fallback
+        let timeout = NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut)
+        let timeoutMapped = ErrorMessageMapper.message(for: timeout)
+        try require(timeoutMapped.title.contains("timed out"), "timeout should map nicely")
+
+        let offline = NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet)
+        let offlineMapped = ErrorMessageMapper.message(for: offline)
+        try require(offlineMapped.title.contains("internet"), "offline should map nicely")
     }
 
     // MARK: - Round 19: markdown segment parser

@@ -282,14 +282,13 @@ private struct AuditEntryCard: View {
     private var decisionColor: Color {
         switch entry.decision {
         case .approved: DS.Palette.positive
-        case .cancelled, .denied: DS.Palette.textTertiary
+        case .cancelled: DS.Palette.textTertiary
         }
     }
 
     private var riskColor: Color {
         switch entry.riskLevel {
         case .high: DS.Palette.danger
-        case .medium: DS.Palette.warning
         case .low: DS.Palette.textSecondary
         }
     }

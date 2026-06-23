@@ -8,18 +8,20 @@
 
 /* Begin PBXBuildFile section */
 		A10000000000000000000001 /* AIAgentHubApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* AIAgentHubApp.swift */; };
-		A10000000000000000000002 /* StoredModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* StoredModels.swift */; };
-		A10000000000000000000003 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* RootView.swift */; };
-		A10000000000000000000004 /* ChatHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* ChatHomeView.swift */; };
-		A10000000000000000000005 /* ModelConfigListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* ModelConfigListView.swift */; };
-		A10000000000000000000006 /* DeviceManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* DeviceManagementView.swift */; };
-		A10000000000000000000007 /* PrivacyAndLogsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* PrivacyAndLogsView.swift */; };
+		A10000000000000000000002 /* Persistence/StoredModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* Persistence/StoredModels.swift */; };
+		A10000000000000000000003 /* UI/RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* UI/RootView.swift */; };
+		A10000000000000000000004 /* UI/ChatHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* UI/ChatHomeView.swift */; };
+		A10000000000000000000005 /* UI/ModelConfigListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* UI/ModelConfigListView.swift */; };
+		A10000000000000000000006 /* UI/DeviceManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* UI/DeviceManagementView.swift */; };
+		A10000000000000000000007 /* UI/PrivacyAndLogsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* UI/PrivacyAndLogsView.swift */; };
 		A10000000000000000000008 /* AIAgentHubCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A30000000000000000000002 /* AIAgentHubCore.framework */; };
 		A10000000000000000000009 /* AIAgentHubCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = A30000000000000000000002 /* AIAgentHubCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A10000000000000000000010 /* AppRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* AppRuntime.swift */; };
-		A10000000000000000000011 /* SwiftDataRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* SwiftDataRepositories.swift */; };
-		A10000000000000000000012 /* AppAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* AppAuthorization.swift */; };
-		A10000000000000000000013 /* BonjourDeviceDiscoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* BonjourDeviceDiscoveryService.swift */; };
+		A10000000000000000000011 /* Persistence/SwiftDataRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* Persistence/SwiftDataRepositories.swift */; };
+		A10000000000000000000012 /* Authorization/AppAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* Authorization/AppAuthorization.swift */; };
+		A10000000000000000000013 /* Networking/BonjourDeviceDiscoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* Networking/BonjourDeviceDiscoveryService.swift */; };
+		A10000000000000000000014 /* DesignSystem/DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* DesignSystem/DesignTokens.swift */; };
+		A10000000000000000000015 /* DesignSystem/DSComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* DesignSystem/DSComponents.swift */; };
 		A11000000000000000000001 /* DomainModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000001 /* DomainModels.swift */; };
 		A11000000000000000000002 /* PrivacyRedactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000002 /* PrivacyRedactor.swift */; };
 		A11000000000000000000003 /* Secrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000003 /* Secrets.swift */; };
@@ -34,6 +36,19 @@
 		A11000000000000000000012 /* SandboxExecution.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000012 /* SandboxExecution.swift */; };
 		A11000000000000000000013 /* TransportCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000013 /* TransportCrypto.swift */; };
 		A11000000000000000000014 /* RemoteTransportProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000014 /* RemoteTransportProtocol.swift */; };
+		A11000000000000000000015 /* ActiveGenerationTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000015 /* ActiveGenerationTracker.swift */; };
+		A11000000000000000000016 /* ConversationExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000016 /* ConversationExporter.swift */; };
+		A11000000000000000000017 /* ErrorMessageMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000017 /* ErrorMessageMapper.swift */; };
+		A11000000000000000000018 /* LastSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000018 /* LastSessionStore.swift */; };
+		A11000000000000000000019 /* MessageSegmentParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000019 /* MessageSegmentParser.swift */; };
+		A11000000000000000000020 /* PrivacyPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000020 /* PrivacyPreferences.swift */; };
+		A11000000000000000000021 /* RelativeTimeFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000021 /* RelativeTimeFormatter.swift */; };
+		A11000000000000000000022 /* SessionDateGrouper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000022 /* SessionDateGrouper.swift */; };
+		A11000000000000000000023 /* SessionTitleDeriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000023 /* SessionTitleDeriver.swift */; };
+		A11000000000000000000024 /* SlashCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000024 /* SlashCommand.swift */; };
+		A11000000000000000000025 /* StreamingResponseBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000025 /* StreamingResponseBuffer.swift */; };
+		A11000000000000000000026 /* SystemPromptPreset.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000026 /* SystemPromptPreset.swift */; };
+		A11000000000000000000027 /* TokenEstimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000027 /* TokenEstimator.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -62,16 +77,18 @@
 
 /* Begin PBXFileReference section */
 		A20000000000000000000001 /* AIAgentHubApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAgentHubApp.swift; sourceTree = "<group>"; };
-		A20000000000000000000002 /* StoredModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Persistence/StoredModels.swift; sourceTree = "<group>"; };
-		A20000000000000000000003 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/RootView.swift; sourceTree = "<group>"; };
-		A20000000000000000000004 /* ChatHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/ChatHomeView.swift; sourceTree = "<group>"; };
-		A20000000000000000000005 /* ModelConfigListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/ModelConfigListView.swift; sourceTree = "<group>"; };
-		A20000000000000000000006 /* DeviceManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/DeviceManagementView.swift; sourceTree = "<group>"; };
-		A20000000000000000000007 /* PrivacyAndLogsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/PrivacyAndLogsView.swift; sourceTree = "<group>"; };
+		A20000000000000000000002 /* Persistence/StoredModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Persistence/StoredModels.swift; sourceTree = "<group>"; };
+		A20000000000000000000003 /* UI/RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/RootView.swift; sourceTree = "<group>"; };
+		A20000000000000000000004 /* UI/ChatHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/ChatHomeView.swift; sourceTree = "<group>"; };
+		A20000000000000000000005 /* UI/ModelConfigListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/ModelConfigListView.swift; sourceTree = "<group>"; };
+		A20000000000000000000006 /* UI/DeviceManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/DeviceManagementView.swift; sourceTree = "<group>"; };
+		A20000000000000000000007 /* UI/PrivacyAndLogsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/PrivacyAndLogsView.swift; sourceTree = "<group>"; };
 		A20000000000000000000008 /* AppRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRuntime.swift; sourceTree = "<group>"; };
-		A20000000000000000000009 /* SwiftDataRepositories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Persistence/SwiftDataRepositories.swift; sourceTree = "<group>"; };
-		A20000000000000000000010 /* AppAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Authorization/AppAuthorization.swift; sourceTree = "<group>"; };
-		A20000000000000000000011 /* BonjourDeviceDiscoveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Networking/BonjourDeviceDiscoveryService.swift; sourceTree = "<group>"; };
+		A20000000000000000000009 /* Persistence/SwiftDataRepositories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Persistence/SwiftDataRepositories.swift; sourceTree = "<group>"; };
+		A20000000000000000000010 /* Authorization/AppAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Authorization/AppAuthorization.swift; sourceTree = "<group>"; };
+		A20000000000000000000011 /* Networking/BonjourDeviceDiscoveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Networking/BonjourDeviceDiscoveryService.swift; sourceTree = "<group>"; };
+		A20000000000000000000012 /* DesignSystem/DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem/DesignTokens.swift; sourceTree = "<group>"; };
+		A20000000000000000000013 /* DesignSystem/DSComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem/DSComponents.swift; sourceTree = "<group>"; };
 		A21000000000000000000001 /* DomainModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomainModels.swift; sourceTree = "<group>"; };
 		A21000000000000000000002 /* PrivacyRedactor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyRedactor.swift; sourceTree = "<group>"; };
 		A21000000000000000000003 /* Secrets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Secrets.swift; sourceTree = "<group>"; };
@@ -86,6 +103,19 @@
 		A21000000000000000000012 /* SandboxExecution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SandboxExecution.swift; sourceTree = "<group>"; };
 		A21000000000000000000013 /* TransportCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportCrypto.swift; sourceTree = "<group>"; };
 		A21000000000000000000014 /* RemoteTransportProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTransportProtocol.swift; sourceTree = "<group>"; };
+		A21000000000000000000015 /* ActiveGenerationTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveGenerationTracker.swift; sourceTree = "<group>"; };
+		A21000000000000000000016 /* ConversationExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationExporter.swift; sourceTree = "<group>"; };
+		A21000000000000000000017 /* ErrorMessageMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorMessageMapper.swift; sourceTree = "<group>"; };
+		A21000000000000000000018 /* LastSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastSessionStore.swift; sourceTree = "<group>"; };
+		A21000000000000000000019 /* MessageSegmentParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageSegmentParser.swift; sourceTree = "<group>"; };
+		A21000000000000000000020 /* PrivacyPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyPreferences.swift; sourceTree = "<group>"; };
+		A21000000000000000000021 /* RelativeTimeFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelativeTimeFormatter.swift; sourceTree = "<group>"; };
+		A21000000000000000000022 /* SessionDateGrouper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDateGrouper.swift; sourceTree = "<group>"; };
+		A21000000000000000000023 /* SessionTitleDeriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTitleDeriver.swift; sourceTree = "<group>"; };
+		A21000000000000000000024 /* SlashCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlashCommand.swift; sourceTree = "<group>"; };
+		A21000000000000000000025 /* StreamingResponseBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingResponseBuffer.swift; sourceTree = "<group>"; };
+		A21000000000000000000026 /* SystemPromptPreset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemPromptPreset.swift; sourceTree = "<group>"; };
+		A21000000000000000000027 /* TokenEstimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenEstimator.swift; sourceTree = "<group>"; };
 		A30000000000000000000001 /* AIAgentHub.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AIAgentHub.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A30000000000000000000002 /* AIAgentHubCore.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = AIAgentHubCore.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -126,30 +156,41 @@
 			path = App;
 			sourceTree = "<group>";
 		};
-		A50000000000000000000005 /* AIAgentHub */ = {
-			isa = PBXGroup;
-			children = (
-				A20000000000000000000001 /* AIAgentHubApp.swift */,
-				A20000000000000000000008 /* AppRuntime.swift */,
-				A20000000000000000000010 /* AppAuthorization.swift */,
-				A20000000000000000000011 /* BonjourDeviceDiscoveryService.swift */,
-				A20000000000000000000002 /* StoredModels.swift */,
-				A20000000000000000000009 /* SwiftDataRepositories.swift */,
-				A20000000000000000000003 /* RootView.swift */,
-				A20000000000000000000004 /* ChatHomeView.swift */,
-				A20000000000000000000005 /* ModelConfigListView.swift */,
-				A20000000000000000000006 /* DeviceManagementView.swift */,
-				A20000000000000000000007 /* PrivacyAndLogsView.swift */,
-			);
-			path = AIAgentHub;
-			sourceTree = "<group>";
-		};
 		A50000000000000000000003 /* Sources */ = {
 			isa = PBXGroup;
 			children = (
 				A50000000000000000000006 /* AIAgentHubCore */,
 			);
 			path = Sources;
+			sourceTree = "<group>";
+		};
+		A50000000000000000000004 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A30000000000000000000001 /* AIAgentHub.app */,
+				A30000000000000000000002 /* AIAgentHubCore.framework */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A50000000000000000000005 /* AIAgentHub */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000001 /* AIAgentHubApp.swift */,
+				A20000000000000000000008 /* AppRuntime.swift */,
+				A20000000000000000000010 /* Authorization/AppAuthorization.swift */,
+				A20000000000000000000011 /* Networking/BonjourDeviceDiscoveryService.swift */,
+				A20000000000000000000012 /* DesignSystem/DesignTokens.swift */,
+				A20000000000000000000013 /* DesignSystem/DSComponents.swift */,
+				A20000000000000000000002 /* Persistence/StoredModels.swift */,
+				A20000000000000000000009 /* Persistence/SwiftDataRepositories.swift */,
+				A20000000000000000000003 /* UI/RootView.swift */,
+				A20000000000000000000004 /* UI/ChatHomeView.swift */,
+				A20000000000000000000005 /* UI/ModelConfigListView.swift */,
+				A20000000000000000000006 /* UI/DeviceManagementView.swift */,
+				A20000000000000000000007 /* UI/PrivacyAndLogsView.swift */,
+			);
+			path = AIAgentHub;
 			sourceTree = "<group>";
 		};
 		A50000000000000000000006 /* AIAgentHubCore */ = {
@@ -169,17 +210,21 @@
 				A21000000000000000000012 /* SandboxExecution.swift */,
 				A21000000000000000000013 /* TransportCrypto.swift */,
 				A21000000000000000000014 /* RemoteTransportProtocol.swift */,
+				A21000000000000000000015 /* ActiveGenerationTracker.swift */,
+				A21000000000000000000016 /* ConversationExporter.swift */,
+				A21000000000000000000017 /* ErrorMessageMapper.swift */,
+				A21000000000000000000018 /* LastSessionStore.swift */,
+				A21000000000000000000019 /* MessageSegmentParser.swift */,
+				A21000000000000000000020 /* PrivacyPreferences.swift */,
+				A21000000000000000000021 /* RelativeTimeFormatter.swift */,
+				A21000000000000000000022 /* SessionDateGrouper.swift */,
+				A21000000000000000000023 /* SessionTitleDeriver.swift */,
+				A21000000000000000000024 /* SlashCommand.swift */,
+				A21000000000000000000025 /* StreamingResponseBuffer.swift */,
+				A21000000000000000000026 /* SystemPromptPreset.swift */,
+				A21000000000000000000027 /* TokenEstimator.swift */,
 			);
 			path = AIAgentHubCore;
-			sourceTree = "<group>";
-		};
-		A50000000000000000000004 /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				A30000000000000000000001 /* AIAgentHub.app */,
-				A30000000000000000000002 /* AIAgentHubCore.framework */,
-			);
-			name = Products;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -262,16 +307,18 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000001 /* AIAgentHubApp.swift in Sources */,
-				A10000000000000000000002 /* StoredModels.swift in Sources */,
-				A10000000000000000000003 /* RootView.swift in Sources */,
-				A10000000000000000000004 /* ChatHomeView.swift in Sources */,
-				A10000000000000000000005 /* ModelConfigListView.swift in Sources */,
-				A10000000000000000000006 /* DeviceManagementView.swift in Sources */,
-				A10000000000000000000007 /* PrivacyAndLogsView.swift in Sources */,
+				A10000000000000000000002 /* Persistence/StoredModels.swift in Sources */,
+				A10000000000000000000003 /* UI/RootView.swift in Sources */,
+				A10000000000000000000004 /* UI/ChatHomeView.swift in Sources */,
+				A10000000000000000000005 /* UI/ModelConfigListView.swift in Sources */,
+				A10000000000000000000006 /* UI/DeviceManagementView.swift in Sources */,
+				A10000000000000000000007 /* UI/PrivacyAndLogsView.swift in Sources */,
 				A10000000000000000000010 /* AppRuntime.swift in Sources */,
-				A10000000000000000000011 /* SwiftDataRepositories.swift in Sources */,
-				A10000000000000000000012 /* AppAuthorization.swift in Sources */,
-				A10000000000000000000013 /* BonjourDeviceDiscoveryService.swift in Sources */,
+				A10000000000000000000011 /* Persistence/SwiftDataRepositories.swift in Sources */,
+				A10000000000000000000012 /* Authorization/AppAuthorization.swift in Sources */,
+				A10000000000000000000013 /* Networking/BonjourDeviceDiscoveryService.swift in Sources */,
+				A10000000000000000000014 /* DesignSystem/DesignTokens.swift in Sources */,
+				A10000000000000000000015 /* DesignSystem/DSComponents.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -293,6 +340,19 @@
 				A11000000000000000000012 /* SandboxExecution.swift in Sources */,
 				A11000000000000000000013 /* TransportCrypto.swift in Sources */,
 				A11000000000000000000014 /* RemoteTransportProtocol.swift in Sources */,
+				A11000000000000000000015 /* ActiveGenerationTracker.swift in Sources */,
+				A11000000000000000000016 /* ConversationExporter.swift in Sources */,
+				A11000000000000000000017 /* ErrorMessageMapper.swift in Sources */,
+				A11000000000000000000018 /* LastSessionStore.swift in Sources */,
+				A11000000000000000000019 /* MessageSegmentParser.swift in Sources */,
+				A11000000000000000000020 /* PrivacyPreferences.swift in Sources */,
+				A11000000000000000000021 /* RelativeTimeFormatter.swift in Sources */,
+				A11000000000000000000022 /* SessionDateGrouper.swift in Sources */,
+				A11000000000000000000023 /* SessionTitleDeriver.swift in Sources */,
+				A11000000000000000000024 /* SlashCommand.swift in Sources */,
+				A11000000000000000000025 /* StreamingResponseBuffer.swift in Sources */,
+				A11000000000000000000026 /* SystemPromptPreset.swift in Sources */,
+				A11000000000000000000027 /* TokenEstimator.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -429,20 +489,23 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = DCS488B9V9;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "AI Agent Hub";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "AI Agent Hub uses the local network to discover and pair nearby trusted Macs.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.local.AIAgentHub;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aibei.AIAgentHub;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -458,20 +521,23 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = DCS488B9V9;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "AI Agent Hub";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "AI Agent Hub uses the local network to discover and pair nearby trusted Macs.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.local.AIAgentHub;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aibei.AIAgentHub;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -484,8 +550,11 @@
 		A73000000000000000000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				DEFINES_MODULE = YES;
+				DEVELOPMENT_TEAM = DCS488B9V9;
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
@@ -497,7 +566,7 @@
 					"@loader_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.local.AIAgentHubCore;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aibei.AIAgentHubCore;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -509,8 +578,11 @@
 		A73000000000000000000002 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				DEFINES_MODULE = YES;
+				DEVELOPMENT_TEAM = DCS488B9V9;
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
@@ -522,7 +594,7 @@
 					"@loader_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.local.AIAgentHubCore;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aibei.AIAgentHubCore;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
