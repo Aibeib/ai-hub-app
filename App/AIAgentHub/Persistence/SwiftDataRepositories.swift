@@ -175,6 +175,16 @@ final class SwiftDataChatRepository: ChatRepository, @unchecked Sendable {
         save()
     }
 
+    func setSessionSystemPrompt(_ sessionId: UUID, systemPrompt: String?) {
+        guard let session = fetchSession(id: sessionId) else {
+            return
+        }
+        let trimmed = systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines)
+        session.systemPrompt = (trimmed?.isEmpty ?? true) ? nil : trimmed
+        session.updatedAt = clock.now
+        save()
+    }
+
     func deleteMessage(_ messageId: UUID, in sessionId: UUID) {
         guard let session = fetchSession(id: sessionId) else { return }
         if let stored = session.messages.first(where: { $0.id == messageId }) {
@@ -182,6 +192,63 @@ final class SwiftDataChatRepository: ChatRepository, @unchecked Sendable {
             session.updatedAt = clock.now
             save()
         }
+    }
+
+    func updateMessageContent(_ messageId: UUID, in sessionId: UUID, newContent: String) {
+        guard let session = fetchSession(id: sessionId),
+              let stored = session.messages.first(where: { $0.id == messageId }) else { return }
+        stored.content = newContent
+        session.updatedAt = clock.now
+        save()
+    }
+
+    func deleteMessagesAfter(_ messageId: UUID, in sessionId: UUID) {
+        guard let session = fetchSession(id: sessionId),
+              let cutoffMessage = session.messages.first(where: { $0.id == messageId }) else { return }
+        let cutoffTime = cutoffMessage.timestamp
+        let toDelete = session.messages.filter { $0.timestamp > cutoffTime }
+        for stored in toDelete {
+            context.delete(stored)
+        }
+        session.updatedAt = clock.now
+        save()
+    }
+
+    @discardableResult
+    func branchSession(_ sourceSessionId: UUID, upToMessageId: UUID, newTitle: String) -> ChatSessionRecord? {
+        guard let source = fetchSession(id: sourceSessionId) else { return nil }
+        let ordered = source.messages.sorted { $0.timestamp < $1.timestamp }
+        guard let cutoffMessage = ordered.first(where: { $0.id == upToMessageId }) else { return nil }
+        let cutoffTime = cutoffMessage.timestamp
+        let preserved = ordered.filter { $0.timestamp <= cutoffTime }
+
+        let now = clock.now
+        let newRecord = ChatSessionRecord(
+            title: newTitle,
+            modelConfigId: source.modelConfigId,
+            systemPrompt: source.systemPrompt,
+            createdAt: now,
+            updatedAt: now
+        )
+        let newStored = StoredChatSession(record: newRecord)
+        context.insert(newStored)
+
+        for original in preserved {
+            let copy = StoredChatMessage(
+                message: ChatMessageDTO(
+                    id: UUID(),
+                    role: MessageRole(rawValue: original.roleRawValue) ?? .assistant,
+                    content: original.content,
+                    timestamp: original.timestamp
+                )
+            )
+            copy.session = newStored
+            newStored.messages.append(copy)
+            context.insert(copy)
+        }
+
+        save()
+        return newRecord
     }
 
     func recordTokenUsage(_ usage: TokenUsage, for sessionId: UUID) {

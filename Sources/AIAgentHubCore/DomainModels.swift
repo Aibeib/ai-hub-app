@@ -166,7 +166,61 @@ public enum ChatStreamEvent: Equatable, Sendable {
     case token(String)
     case toolCall(ToolCallRequest)
     case usage(TokenUsage)
+    case stop(StopReason)
     case completed
+}
+
+/// Why the assistant stream stopped. Both OpenAI's `finish_reason` and Claude's `stop_reason`
+/// fold into this single enum.
+public enum StopReason: String, Codable, Equatable, Sendable {
+    case endTurn         // natural completion
+    case maxTokens       // hit max_tokens / token budget
+    case toolUse         // model wants to call a tool, more turns follow
+    case stopSequence    // matched a configured stop string
+    case contentFilter   // provider blocked output
+    case other
+
+    public var displayLabel: String {
+        switch self {
+        case .endTurn: "Complete"
+        case .maxTokens: "Truncated (max tokens)"
+        case .toolUse: "Awaiting tool result"
+        case .stopSequence: "Stop sequence"
+        case .contentFilter: "Filtered by provider"
+        case .other: "Stopped"
+        }
+    }
+
+    public var isTruncation: Bool {
+        switch self {
+        case .maxTokens, .stopSequence, .contentFilter: true
+        case .endTurn, .toolUse, .other: false
+        }
+    }
+
+    /// Map an OpenAI `finish_reason` string into the canonical enum.
+    public static func fromOpenAI(_ raw: String?) -> StopReason? {
+        switch raw {
+        case "stop": .endTurn
+        case "length": .maxTokens
+        case "tool_calls", "function_call": .toolUse
+        case "content_filter": .contentFilter
+        case nil: nil
+        default: .other
+        }
+    }
+
+    /// Map a Claude `stop_reason` string into the canonical enum.
+    public static func fromClaude(_ raw: String?) -> StopReason? {
+        switch raw {
+        case "end_turn": .endTurn
+        case "max_tokens": .maxTokens
+        case "tool_use": .toolUse
+        case "stop_sequence": .stopSequence
+        case nil: nil
+        default: .other
+        }
+    }
 }
 
 public struct ToolCallRequest: Codable, Equatable, Sendable {
@@ -185,6 +239,7 @@ public struct ChatSessionRecord: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     public var title: String
     public var modelConfigId: UUID?
+    public var systemPrompt: String?
     public var createdAt: Date
     public var updatedAt: Date
     public var isArchived: Bool
@@ -196,6 +251,7 @@ public struct ChatSessionRecord: Identifiable, Codable, Equatable, Sendable {
         id: UUID = UUID(),
         title: String,
         modelConfigId: UUID? = nil,
+        systemPrompt: String? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
         isArchived: Bool = false,
@@ -206,6 +262,7 @@ public struct ChatSessionRecord: Identifiable, Codable, Equatable, Sendable {
         self.id = id
         self.title = title
         self.modelConfigId = modelConfigId
+        self.systemPrompt = systemPrompt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.isArchived = isArchived

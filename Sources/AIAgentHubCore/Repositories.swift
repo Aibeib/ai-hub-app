@@ -31,12 +31,17 @@ public protocol ChatRepository: Sendable {
     func appendMessage(_ message: ChatMessageDTO, to sessionId: UUID) -> ChatMessageDTO
     func messages(for sessionId: UUID) -> [ChatMessageDTO]
     func deleteMessage(_ messageId: UUID, in sessionId: UUID)
+    func updateMessageContent(_ messageId: UUID, in sessionId: UUID, newContent: String)
+    func deleteMessagesAfter(_ messageId: UUID, in sessionId: UUID)
+    @discardableResult
+    func branchSession(_ sourceSessionId: UUID, upToMessageId: UUID, newTitle: String) -> ChatSessionRecord?
     func renameSession(_ sessionId: UUID, title: String)
     func archiveSession(_ sessionId: UUID)
     func softDeleteSession(_ sessionId: UUID)
     func restoreSession(_ sessionId: UUID)
     func setSessionModel(_ sessionId: UUID, modelConfigId: UUID?)
     func setSessionPinned(_ sessionId: UUID, isPinned: Bool)
+    func setSessionSystemPrompt(_ sessionId: UUID, systemPrompt: String?)
     func recordTokenUsage(_ usage: TokenUsage, for sessionId: UUID)
     func tokenUsage(for sessionId: UUID) -> TokenUsage
     func search(query: String, limit: Int) -> [ChatMessageSearchHit]
@@ -193,6 +198,19 @@ public final class InMemoryChatRepository: ChatRepository, @unchecked Sendable {
         }
     }
 
+    public func setSessionSystemPrompt(_ sessionId: UUID, systemPrompt: String?) {
+        lock.withLock {
+            guard var session = sessionStorage[sessionId] else {
+                return
+            }
+            // Normalize empty / whitespace-only strings to nil so the orchestrator skips them.
+            let trimmed = systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines)
+            session.systemPrompt = (trimmed?.isEmpty ?? true) ? nil : trimmed
+            session.updatedAt = clock.now
+            sessionStorage[sessionId] = session
+        }
+    }
+
     public func deleteMessage(_ messageId: UUID, in sessionId: UUID) {
         lock.withLock {
             messageStorage[sessionId]?.removeAll { $0.id == messageId }
@@ -200,6 +218,72 @@ public final class InMemoryChatRepository: ChatRepository, @unchecked Sendable {
                 session.updatedAt = clock.now
                 sessionStorage[sessionId] = session
             }
+        }
+    }
+
+    public func updateMessageContent(_ messageId: UUID, in sessionId: UUID, newContent: String) {
+        lock.withLock {
+            guard var messages = messageStorage[sessionId],
+                  let index = messages.firstIndex(where: { $0.id == messageId }) else {
+                return
+            }
+            messages[index].content = newContent
+            messageStorage[sessionId] = messages
+            if var session = sessionStorage[sessionId] {
+                session.updatedAt = clock.now
+                sessionStorage[sessionId] = session
+            }
+        }
+    }
+
+    public func deleteMessagesAfter(_ messageId: UUID, in sessionId: UUID) {
+        lock.withLock {
+            guard var messages = messageStorage[sessionId] else { return }
+            messages.sort { $0.timestamp < $1.timestamp }
+            guard let cutoff = messages.firstIndex(where: { $0.id == messageId }) else { return }
+            let dropAfter = cutoff + 1
+            guard dropAfter < messages.count else { return }
+            messages.removeSubrange(dropAfter..<messages.count)
+            messageStorage[sessionId] = messages
+            if var session = sessionStorage[sessionId] {
+                session.updatedAt = clock.now
+                sessionStorage[sessionId] = session
+            }
+        }
+    }
+
+    @discardableResult
+    public func branchSession(_ sourceSessionId: UUID, upToMessageId: UUID, newTitle: String) -> ChatSessionRecord? {
+        lock.withLock {
+            guard let source = sessionStorage[sourceSessionId],
+                  let sourceMessages = messageStorage[sourceSessionId] else {
+                return nil
+            }
+
+            let sorted = sourceMessages.sorted { $0.timestamp < $1.timestamp }
+            guard let cutoff = sorted.firstIndex(where: { $0.id == upToMessageId }) else {
+                return nil
+            }
+            let preserved = Array(sorted.prefix(cutoff + 1))
+
+            let newSession = ChatSessionRecord(
+                title: newTitle,
+                modelConfigId: source.modelConfigId,
+                systemPrompt: source.systemPrompt,
+                createdAt: clock.now,
+                updatedAt: clock.now
+            )
+            sessionStorage[newSession.id] = newSession
+            // Duplicate the messages with fresh UUIDs so they don't collide with the source.
+            messageStorage[newSession.id] = preserved.map { source -> ChatMessageDTO in
+                ChatMessageDTO(
+                    id: UUID(),
+                    role: source.role,
+                    content: source.content,
+                    timestamp: source.timestamp
+                )
+            }
+            return newSession
         }
     }
 

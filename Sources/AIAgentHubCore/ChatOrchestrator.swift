@@ -130,9 +130,20 @@ public final class ChatOrchestrator: @unchecked Sendable {
         )
 
         let context = contextBuilder.build(from: repository.messages(for: sessionId))
+        var requestMessages = context
+        // Prepend the session's system prompt, if any. Stored separately from the message log
+        // so the user can re-edit it later without touching the conversation.
+        if let session = repository.session(id: sessionId),
+           let prompt = session.systemPrompt,
+           !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            requestMessages.insert(
+                ChatMessageDTO(role: .system, content: prompt, timestamp: Date(timeIntervalSince1970: 0)),
+                at: 0
+            )
+        }
         let request = ChatRequest(
             model: model,
-            messages: context,
+            messages: requestMessages,
             tools: tools,
             temperature: model.temperature,
             maxTokens: model.maxTokens
@@ -170,6 +181,10 @@ public final class ChatOrchestrator: @unchecked Sendable {
                         await streamingBuffer.record(usage: usage)
                     }
                     repository.recordTokenUsage(usage, for: sessionId)
+                case let .stop(reason):
+                    if let streamingBuffer {
+                        await streamingBuffer.record(stopReason: reason)
+                    }
                 case .completed:
                     break
                 }

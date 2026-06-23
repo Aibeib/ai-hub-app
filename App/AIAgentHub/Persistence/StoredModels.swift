@@ -56,6 +56,7 @@ final class StoredChatSession {
     @Attribute(.unique) var id: UUID
     var title: String
     var modelConfigId: UUID?
+    var systemPrompt: String?
     var createdAt: Date
     var updatedAt: Date
     var isArchived: Bool
@@ -70,6 +71,7 @@ final class StoredChatSession {
         id = record.id
         title = record.title
         modelConfigId = record.modelConfigId
+        systemPrompt = record.systemPrompt
         createdAt = record.createdAt
         updatedAt = record.updatedAt
         isArchived = record.isArchived
@@ -84,6 +86,7 @@ final class StoredChatSession {
     func apply(_ record: ChatSessionRecord) {
         title = record.title
         modelConfigId = record.modelConfigId
+        systemPrompt = record.systemPrompt
         createdAt = record.createdAt
         updatedAt = record.updatedAt
         isArchived = record.isArchived
@@ -97,6 +100,7 @@ final class StoredChatSession {
             id: id,
             title: title,
             modelConfigId: modelConfigId,
+            systemPrompt: systemPrompt,
             createdAt: createdAt,
             updatedAt: updatedAt,
             isArchived: isArchived,
