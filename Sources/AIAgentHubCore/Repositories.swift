@@ -33,6 +33,7 @@ public protocol ChatRepository: Sendable {
     func deleteMessage(_ messageId: UUID, in sessionId: UUID)
     func updateMessageContent(_ messageId: UUID, in sessionId: UUID, newContent: String)
     func deleteMessagesAfter(_ messageId: UUID, in sessionId: UUID)
+    func toggleBookmark(_ messageId: UUID, in sessionId: UUID)
     @discardableResult
     func branchSession(_ sourceSessionId: UUID, upToMessageId: UUID, newTitle: String) -> ChatSessionRecord?
     func renameSession(_ sessionId: UUID, title: String)
@@ -249,6 +250,17 @@ public final class InMemoryChatRepository: ChatRepository, @unchecked Sendable {
                 session.updatedAt = clock.now
                 sessionStorage[sessionId] = session
             }
+        }
+    }
+
+    public func toggleBookmark(_ messageId: UUID, in sessionId: UUID) {
+        lock.withLock {
+            guard var messages = messageStorage[sessionId],
+                  let index = messages.firstIndex(where: { $0.id == messageId }) else {
+                return
+            }
+            messages[index].isBookmarked.toggle()
+            messageStorage[sessionId] = messages
         }
     }
 

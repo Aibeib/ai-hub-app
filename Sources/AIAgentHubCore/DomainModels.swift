@@ -116,17 +116,20 @@ public struct ChatMessageDTO: Identifiable, Codable, Equatable, Sendable {
     public var role: MessageRole
     public var content: String
     public var timestamp: Date
+    public var isBookmarked: Bool
 
     public init(
         id: UUID = UUID(),
         role: MessageRole,
         content: String,
-        timestamp: Date = Date()
+        timestamp: Date = Date(),
+        isBookmarked: Bool = false
     ) {
         self.id = id
         self.role = role
         self.content = content
         self.timestamp = timestamp
+        self.isBookmarked = isBookmarked
     }
 }
 

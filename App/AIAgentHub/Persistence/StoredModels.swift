@@ -119,6 +119,7 @@ final class StoredChatMessage {
     var timestamp: Date
     var isStreaming: Bool
     var errorMessage: String?
+    var isBookmarked: Bool
     var session: StoredChatSession?
 
     init(message: ChatMessageDTO, isStreaming: Bool = false, errorMessage: String? = nil) {
@@ -128,6 +129,7 @@ final class StoredChatMessage {
         timestamp = message.timestamp
         self.isStreaming = isStreaming
         self.errorMessage = errorMessage
+        self.isBookmarked = message.isBookmarked
     }
 
     var dto: ChatMessageDTO {
@@ -135,7 +137,8 @@ final class StoredChatMessage {
             id: id,
             role: MessageRole(rawValue: roleRawValue) ?? .assistant,
             content: content,
-            timestamp: timestamp
+            timestamp: timestamp,
+            isBookmarked: isBookmarked
         )
     }
 }

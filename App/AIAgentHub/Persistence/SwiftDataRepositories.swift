@@ -214,6 +214,13 @@ final class SwiftDataChatRepository: ChatRepository, @unchecked Sendable {
         save()
     }
 
+    func toggleBookmark(_ messageId: UUID, in sessionId: UUID) {
+        guard let session = fetchSession(id: sessionId),
+              let stored = session.messages.first(where: { $0.id == messageId }) else { return }
+        stored.isBookmarked.toggle()
+        save()
+    }
+
     @discardableResult
     func branchSession(_ sourceSessionId: UUID, upToMessageId: UUID, newTitle: String) -> ChatSessionRecord? {
         guard let source = fetchSession(id: sourceSessionId) else { return nil }
