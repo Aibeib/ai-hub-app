@@ -11,22 +11,64 @@ public struct ContextBuilder: Sendable {
         self.maxCharacters = maxCharacters
     }
 
+    /// Build the messages sent to the model.
+    ///
+    /// Strategy (turn-aware):
+    /// - Walk the conversation from newest to oldest, accumulating `user/assistant/tool` turns
+    ///   as logical units. A "turn" is a user message plus the consecutive assistant/tool
+    ///   replies that follow it. We keep whole turns rather than slicing mid-reply so the
+    ///   model never sees a half-answer.
+    /// - System messages (set per-session via setSessionSystemPrompt) are *always* kept,
+    ///   regardless of budget — they're how the user steers the model.
+    /// - The most recent turn is also always kept, even if it alone exceeds the budget. The
+    ///   alternative is sending nothing, which is worse than sending one large turn.
     public func build(from messages: [ChatMessageDTO]) -> [ChatMessageDTO] {
-        var remaining = maxCharacters
-        var selected: [ChatMessageDTO] = []
+        // Separate system messages so they don't compete with conversation turns for budget.
+        let systemMessages = messages.filter { $0.role == .system }
+        let conversation = messages
+            .filter { $0.role != .system }
+            .sorted { $0.timestamp < $1.timestamp }
 
-        for message in messages.reversed() {
-            guard remaining > 0 else {
-                break
+        guard !conversation.isEmpty else {
+            return systemMessages
+        }
+
+        // Group into turns: each turn starts at a user message (or the first message if there's
+        // no user at the head) and extends through the following non-user messages.
+        var turns: [[ChatMessageDTO]] = []
+        var current: [ChatMessageDTO] = []
+        for message in conversation {
+            if message.role == .user && !current.isEmpty {
+                turns.append(current)
+                current = [message]
+            } else {
+                current.append(message)
             }
+        }
+        if !current.isEmpty {
+            turns.append(current)
+        }
 
-            if message.content.count <= remaining {
-                selected.append(message)
-                remaining -= message.content.count
+        // Walk newest → oldest, always include the most recent turn even if oversized.
+        var selected: [[ChatMessageDTO]] = []
+        var consumed = 0
+        for (index, turn) in turns.enumerated().reversed() {
+            let turnSize = turn.reduce(0) { $0 + $1.content.count }
+            if index == turns.count - 1 {
+                // Newest turn — keep whole no matter what.
+                selected.insert(turn, at: 0)
+                consumed += turnSize
+                continue
+            }
+            if consumed + turnSize <= maxCharacters {
+                selected.insert(turn, at: 0)
+                consumed += turnSize
+            } else {
+                break
             }
         }
 
-        return selected.reversed()
+        return systemMessages + selected.flatMap { $0 }
     }
 }
 
