@@ -12,12 +12,27 @@ struct ChatHomeView: View {
     @State private var searchQuery = ""
     @State private var exportPayload: ConversationExportPayload?
     @State private var lastFailedSend: FailedSend?
+    @State private var editingMessage: MessageEditTarget?
+    @State private var systemPromptDraft: SystemPromptDraft?
     @FocusState private var inputFocused: Bool
 
     private struct FailedSend: Equatable {
         let sessionId: UUID
         let message: String
         let errorDescription: String
+    }
+
+    struct MessageEditTarget: Identifiable, Equatable {
+        let id = UUID()
+        let sessionId: UUID
+        let messageId: UUID
+        let originalContent: String
+    }
+
+    struct SystemPromptDraft: Identifiable, Equatable {
+        let id = UUID()
+        let sessionId: UUID
+        var content: String
     }
 
     private var visibleSessions: [ChatSessionRecord] {
@@ -72,7 +87,28 @@ struct ChatHomeView: View {
         .sheet(item: $exportPayload) { payload in
             ConversationExportView(payload: payload)
         }
+        .sheet(item: $editingMessage) { target in
+            MessageEditView(target: target) { newContent in
+                handleMessageEdit(target: target, newContent: newContent)
+            }
+        }
+        .sheet(item: $systemPromptDraft) { draft in
+            SystemPromptEditorView(
+                initial: draft.content,
+                onSave: { newPrompt in
+                    runtime.setSystemPrompt(draft.sessionId, prompt: newPrompt)
+                }
+            )
+        }
         .toolbar(.hidden, for: .navigationBar)
+        .onAppear {
+            if selectedSessionId == nil {
+                selectedSessionId = runtime.restorableSessionId()
+            }
+        }
+        .onChange(of: selectedSessionId) { _, newValue in
+            runtime.rememberOpenSession(newValue)
+        }
     }
 
     // MARK: - Session list pane
@@ -182,6 +218,9 @@ struct ChatHomeView: View {
             if let selectedSession {
                 transcriptHeader(for: selectedSession)
                 Divider().overlay(DS.Palette.separator)
+                if !runtime.sessionHasAPIKey(selectedSession.id) {
+                    MissingAPIKeyBanner(modelName: runtime.resolvedModelName(for: selectedSession.id))
+                }
                 transcriptScroll(for: selectedSession)
                 inputBar(for: selectedSession)
             } else {
@@ -242,6 +281,18 @@ struct ChatHomeView: View {
                 }
 
                 Section {
+                    Button {
+                        systemPromptDraft = SystemPromptDraft(
+                            sessionId: session.id,
+                            content: session.systemPrompt ?? ""
+                        )
+                    } label: {
+                        Label(
+                            session.systemPrompt == nil ? "Set system prompt" : "Edit system prompt",
+                            systemImage: "text.bubble"
+                        )
+                    }
+
                     Button {
                         Task { await regenerate(in: session) }
                     } label: {
@@ -314,7 +365,19 @@ struct ChatHomeView: View {
                                 message: message,
                                 onDelete: {
                                     runtime.deleteMessage(message.id, in: session.id)
-                                }
+                                },
+                                onBranch: {
+                                    if let branched = runtime.branchSession(from: session.id, atMessage: message.id) {
+                                        selectedSessionId = branched.id
+                                    }
+                                },
+                                onEdit: message.role == .user ? {
+                                    editingMessage = MessageEditTarget(
+                                        sessionId: session.id,
+                                        messageId: message.id,
+                                        originalContent: message.content
+                                    )
+                                } : nil
                             )
                                 .id(message.id)
                         }
@@ -462,6 +525,36 @@ struct ChatHomeView: View {
         }
     }
 
+    /// Apply an in-place edit to a user message. We update the content, drop everything that
+    /// came after (those were responses to the old prompt and are now stale), and re-trigger
+    /// generation so the assistant answers the corrected question.
+    private func handleMessageEdit(target: MessageEditTarget, newContent: String) {
+        let trimmed = newContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed != target.originalContent else {
+            return
+        }
+        runtime.updateMessageContent(target.messageId, in: target.sessionId, newContent: trimmed)
+        runtime.deleteMessagesAfter(target.messageId, in: target.sessionId)
+
+        // Re-run generation with the edited message as the last user turn.
+        guard let session = runtime.sessions.first(where: { $0.id == target.sessionId }) else {
+            return
+        }
+        Task {
+            await runGeneration(in: session) { orchestrator, model, buffer in
+                try await orchestrator.regenerateLastAssistantMessage(
+                    in: session.id,
+                    using: model,
+                    tools: runtime.toolRegistry.definitions,
+                    streamingBuffer: buffer
+                )
+            } onError: { error in
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
     private func regenerate(in session: ChatSessionRecord) async {
         await runGeneration(in: session) { orchestrator, model, buffer in
             try await orchestrator.regenerateLastAssistantMessage(
@@ -606,6 +699,8 @@ private struct SessionRow: View {
 private struct MessageBubble: View {
     let message: ChatMessageDTO
     var onDelete: (() -> Void)? = nil
+    var onBranch: (() -> Void)? = nil
+    var onEdit: (() -> Void)? = nil
 
     var body: some View {
         Group {
@@ -630,6 +725,16 @@ private struct MessageBubble: View {
                 #endif
             } label: {
                 Label("Copy", systemImage: "doc.on.doc")
+            }
+            if message.role == .user, let onEdit {
+                Button(action: onEdit) {
+                    Label("Edit message", systemImage: "pencil")
+                }
+            }
+            if let onBranch {
+                Button(action: onBranch) {
+                    Label("Branch from here", systemImage: "arrow.triangle.branch")
+                }
             }
             if let onDelete {
                 Button(role: .destructive, action: onDelete) {
@@ -877,6 +982,208 @@ private struct ConversationExportView: View {
                     }
                 }
             }
+        }
+    }
+}
+
+// MARK: - Message edit sheet
+
+private struct MessageEditView: View {
+    let target: ChatHomeView.MessageEditTarget
+    let onSave: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var content: String
+
+    init(target: ChatHomeView.MessageEditTarget, onSave: @escaping (String) -> Void) {
+        self.target = target
+        self.onSave = onSave
+        _content = State(initialValue: target.originalContent)
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: DS.Space.sm) {
+                Text("Editing will discard the assistant reply and re-run the prompt.")
+                    .font(DS.Typography.caption)
+                    .foregroundStyle(DS.Palette.textSecondary)
+
+                TextEditor(text: $content)
+                    .font(DS.Typography.body)
+                    .scrollContentBackground(.hidden)
+                    .padding(DS.Space.sm)
+                    .background(
+                        RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous)
+                            .fill(DS.Palette.surfaceElevated)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous)
+                            .stroke(DS.Palette.border, lineWidth: 0.5)
+                    )
+                    .frame(minHeight: 200)
+            }
+            .padding(DS.Space.md)
+            .background(DS.Palette.surface)
+            .navigationTitle("Edit message")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save & regenerate") {
+                        onSave(content)
+                        dismiss()
+                    }
+                    .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - System prompt editor
+
+private struct SystemPromptEditorView: View {
+    let initial: String
+    let onSave: (String?) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var content: String
+
+    init(initial: String, onSave: @escaping (String?) -> Void) {
+        self.initial = initial
+        self.onSave = onSave
+        _content = State(initialValue: initial)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: DS.Space.lg) {
+                    Text("System prompt steers the assistant's behaviour for this conversation. Leave it blank to use the model's defaults.")
+                        .font(DS.Typography.caption)
+                        .foregroundStyle(DS.Palette.textSecondary)
+                        .padding(.horizontal, DS.Space.md)
+                        .padding(.top, DS.Space.sm)
+
+                    TextEditor(text: $content)
+                        .font(DS.Typography.body)
+                        .scrollContentBackground(.hidden)
+                        .padding(DS.Space.sm)
+                        .background(
+                            RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous)
+                                .fill(DS.Palette.surfaceElevated)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous)
+                                .stroke(DS.Palette.border, lineWidth: 0.5)
+                        )
+                        .frame(minHeight: 220)
+                        .padding(.horizontal, DS.Space.md)
+
+                    Text("Presets".uppercased())
+                        .font(DS.Typography.captionSmall)
+                        .tracking(1.6)
+                        .foregroundStyle(DS.Palette.textTertiary)
+                        .padding(.horizontal, DS.Space.md)
+                        .padding(.top, DS.Space.sm)
+
+                    LazyVStack(spacing: DS.Space.xs) {
+                        ForEach(SystemPromptPreset.allCases) { preset in
+                            Button {
+                                content = preset.prompt
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(preset.title)
+                                        .font(DS.Typography.callout.weight(.medium))
+                                        .foregroundStyle(DS.Palette.textPrimary)
+                                    Text(preset.summary)
+                                        .font(DS.Typography.captionSmall)
+                                        .foregroundStyle(DS.Palette.textSecondary)
+                                        .multilineTextAlignment(.leading)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(DS.Space.sm + 2)
+                                .background(
+                                    RoundedRectangle(cornerRadius: DS.Radius.sm, style: .continuous)
+                                        .fill(DS.Palette.surfaceElevated)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: DS.Radius.sm, style: .continuous)
+                                        .stroke(DS.Palette.border, lineWidth: 0.5)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, DS.Space.md)
+                    .padding(.bottom, DS.Space.lg)
+                }
+            }
+            .background(DS.Palette.surface)
+            .navigationTitle("System prompt")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .destructiveAction) {
+                    Button("Clear", role: .destructive) {
+                        onSave(nil)
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                        onSave(trimmed.isEmpty ? nil : trimmed)
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Missing API key banner
+
+private struct MissingAPIKeyBanner: View {
+    let modelName: String?
+
+    var body: some View {
+        HStack(alignment: .center, spacing: DS.Space.sm) {
+            Image(systemName: "key.slash")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(DS.Palette.warning)
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("API key missing")
+                    .font(DS.Typography.subheadline)
+                    .foregroundStyle(DS.Palette.textPrimary)
+                Text(message)
+                    .font(DS.Typography.caption)
+                    .foregroundStyle(DS.Palette.textSecondary)
+                    .lineLimit(2)
+            }
+            Spacer()
+            Text("Open Models")
+                .font(DS.Typography.captionSmall.weight(.semibold))
+                .foregroundStyle(DS.Palette.warning)
+        }
+        .padding(.horizontal, DS.Space.xl)
+        .padding(.vertical, DS.Space.sm + 2)
+        .background(DS.Palette.warning.opacity(0.08))
+        .overlay(
+            Rectangle()
+                .fill(DS.Palette.warning.opacity(0.35))
+                .frame(height: 0.5),
+            alignment: .bottom
+        )
+    }
+
+    private var message: String {
+        if let modelName {
+            "Add your provider key to use \(modelName) — or pick a different model from the menu."
+        } else {
+            "Set up a model from the Models tab before sending messages."
         }
     }
 }
