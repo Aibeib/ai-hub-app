@@ -235,6 +235,10 @@ final class AppRuntime: AppAuthorizationPresenter {
         chatRepository.deleteMessagesAfter(id, in: sessionId)
     }
 
+    func toggleBookmark(_ id: UUID, in sessionId: UUID) {
+        chatRepository.toggleBookmark(id, in: sessionId)
+    }
+
     @discardableResult
     func branchSession(from sessionId: UUID, atMessage messageId: UUID) -> ChatSessionRecord? {
         guard let original = chatRepository.session(id: sessionId) else { return nil }

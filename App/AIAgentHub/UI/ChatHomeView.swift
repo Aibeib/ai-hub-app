@@ -377,7 +377,10 @@ struct ChatHomeView: View {
                                         messageId: message.id,
                                         originalContent: message.content
                                     )
-                                } : nil
+                                } : nil,
+                                onToggleBookmark: {
+                                    runtime.toggleBookmark(message.id, in: session.id)
+                                }
                             )
                                 .id(message.id)
                         }
@@ -410,9 +413,24 @@ struct ChatHomeView: View {
     private func inputBar(for session: ChatSessionRecord) -> some View {
         VStack(spacing: 0) {
             Divider().overlay(DS.Palette.separator)
+
+            // Slash command suggestions float above the input field when the user has typed `/`
+            let suggestions = SlashCommandParser.suggestions(forPrefix: draft)
+            if !suggestions.isEmpty && inputFocused {
+                SlashCommandSuggestions(
+                    commands: suggestions,
+                    onPick: { command in
+                        draft = command.prefix + " "
+                    }
+                )
+                .padding(.horizontal, DS.Space.md)
+                .padding(.top, DS.Space.xs)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
             HStack(alignment: .bottom, spacing: DS.Space.sm) {
                 HStack(alignment: .bottom, spacing: DS.Space.xs) {
-                    TextField("Message AI Hub…", text: $draft, axis: .vertical)
+                    TextField("Message AI Hub… (type / for commands)", text: $draft, axis: .vertical)
                         .textFieldStyle(.plain)
                         .font(DS.Typography.body)
                         .lineLimit(1...6)
@@ -472,6 +490,41 @@ struct ChatHomeView: View {
             }
             .padding(DS.Space.md)
             .background(DS.Palette.surface)
+
+            // Token estimate bar
+            let estimate = TokenEstimator.estimateTokens(in: draft)
+            if estimate > 0 {
+                HStack(spacing: DS.Space.sm) {
+                    Image(systemName: "character.cursor.ibeam")
+                        .font(.system(size: 10))
+                        .foregroundStyle(DS.Palette.textTertiary)
+
+                    Text("~\(estimate) tokens → ")
+                        .font(DS.Typography.captionSmall.monospacedDigit())
+                        .foregroundStyle(DS.Palette.textTertiary)
+
+                    if let modelRecord = resolvedModel(for: session),
+                       estimate >= modelRecord.maxTokens {
+                        Text("Exceeds \(modelRecord.maxTokens) limit")
+                            .font(DS.Typography.captionSmall.weight(.semibold))
+                            .foregroundStyle(DS.Palette.danger)
+                    } else if let modelRecord = resolvedModel(for: session),
+                              Double(estimate) >= Double(modelRecord.maxTokens) * 0.75 {
+                        Text("\(Int(Double(estimate) / Double(modelRecord.maxTokens) * 100))% of budget")
+                            .font(DS.Typography.captionSmall)
+                            .foregroundStyle(DS.Palette.warning)
+                    } else {
+                        Text("within model budget")
+                            .font(DS.Typography.captionSmall)
+                            .foregroundStyle(DS.Palette.textTertiary)
+                    }
+
+                    Spacer()
+                }
+                .padding(.horizontal, DS.Space.xl)
+                .padding(.bottom, DS.Space.xs)
+                .transition(.opacity)
+            }
         }
     }
 
@@ -481,11 +534,18 @@ struct ChatHomeView: View {
 
     private func send(in session: ChatSessionRecord) async {
         guard canSend else { return }
-        let message = draft
+        let raw = draft
+
+        // Intercept slash commands before they ever reach the model.
+        if case let .command(command, args) = SlashCommandParser.parse(raw) {
+            await handle(command: command, args: args, in: session)
+            return
+        }
+
         draft = ""
         await runGeneration(in: session) { orchestrator, model, buffer in
             try await orchestrator.sendUserMessage(
-                message,
+                raw,
                 in: session.id,
                 using: model,
                 tools: runtime.toolRegistry.definitions,
@@ -494,10 +554,74 @@ struct ChatHomeView: View {
         } onError: { error in
             lastFailedSend = FailedSend(
                 sessionId: session.id,
-                message: message,
+                message: raw,
                 errorDescription: error.localizedDescription
             )
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Resolve a slash command. Most commands route to the UI (open a sheet, clear messages,
+    /// etc.); `.code` rewrites the draft and re-runs as a normal message.
+    private func handle(command: SlashCommand, args: String, in session: ChatSessionRecord) async {
+        switch command {
+        case .system:
+            if args.isEmpty {
+                systemPromptDraft = SystemPromptDraft(
+                    sessionId: session.id,
+                    content: session.systemPrompt ?? ""
+                )
+            } else {
+                runtime.setSystemPrompt(session.id, prompt: args)
+            }
+            draft = ""
+
+        case .preset:
+            systemPromptDraft = SystemPromptDraft(
+                sessionId: session.id,
+                content: session.systemPrompt ?? ""
+            )
+            draft = ""
+
+        case .clear:
+            for message in runtime.chatRepository.messages(for: session.id) {
+                runtime.deleteMessage(message.id, in: session.id)
+            }
+            draft = ""
+
+        case .code:
+            // `args` looks like "swift func foo() { ... }". Take the first word as language.
+            let parts = args.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+            let language: String
+            let body: String
+            if parts.count == 2 {
+                language = String(parts[0])
+                body = String(parts[1])
+            } else {
+                language = ""
+                body = args
+            }
+            let fence = "```\(language)\n\(body)\n```"
+            draft = fence
+            // Don't auto-send; let the user review.
+
+        case .branch:
+            guard let lastAssistant = runtime.chatRepository.messages(for: session.id)
+                .reversed()
+                .first(where: { $0.role == .assistant }) else {
+                errorMessage = "Nothing to branch from yet."
+                return
+            }
+            if let branched = runtime.branchSession(from: session.id, atMessage: lastAssistant.id) {
+                selectedSessionId = branched.id
+            }
+            draft = ""
+
+        case .help:
+            errorMessage = SlashCommand.allCases
+                .map { "\($0.usage) — \($0.summary)" }
+                .joined(separator: "\n")
+            draft = ""
         }
     }
 
@@ -628,6 +752,17 @@ struct ChatHomeView: View {
         }
         return try runtime.modelManager.resolveDefaultModel()
     }
+
+    /// Return the model record that *would* be used for this session, without resolving secrets
+    /// — used for cheap UI hints like the token budget bar.
+    private func resolvedModel(for session: ChatSessionRecord) -> ModelConfigRecord? {
+        if let id = session.modelConfigId,
+           let record = runtime.modelConfigs.first(where: { $0.id == id && $0.isEnabled }) {
+            return record
+        }
+        return runtime.modelConfigs.first { $0.isDefault && $0.isEnabled }
+            ?? runtime.modelConfigs.first { $0.isEnabled }
+    }
 }
 
 // MARK: - Session row
@@ -701,6 +836,7 @@ private struct MessageBubble: View {
     var onDelete: (() -> Void)? = nil
     var onBranch: (() -> Void)? = nil
     var onEdit: (() -> Void)? = nil
+    var onToggleBookmark: (() -> Void)? = nil
 
     var body: some View {
         Group {
@@ -715,6 +851,18 @@ private struct MessageBubble: View {
                 SystemBubble(content: message.content)
             }
         }
+        .overlay(alignment: .topLeading) {
+            if message.isBookmarked {
+                Image(systemName: "bookmark.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(DS.Palette.accent)
+                    .padding(6)
+                    .background(
+                        Circle().fill(DS.Palette.accentSoft)
+                    )
+                    .offset(x: -2, y: -2)
+            }
+        }
         .contextMenu {
             Button {
                 #if canImport(UIKit)
@@ -725,6 +873,14 @@ private struct MessageBubble: View {
                 #endif
             } label: {
                 Label("Copy", systemImage: "doc.on.doc")
+            }
+            if let onToggleBookmark {
+                Button(action: onToggleBookmark) {
+                    Label(
+                        message.isBookmarked ? "Remove bookmark" : "Bookmark",
+                        systemImage: message.isBookmarked ? "bookmark.slash" : "bookmark"
+                    )
+                }
             }
             if message.role == .user, let onEdit {
                 Button(action: onEdit) {
@@ -775,6 +931,10 @@ private struct AssistantBubble: View {
     let text: String
     let timestamp: Date
 
+    private var segments: [MessageSegment] {
+        MessageSegmentParser.parse(text)
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: DS.Space.sm) {
             AssistantGlyph()
@@ -791,21 +951,26 @@ private struct AssistantBubble: View {
                         .foregroundStyle(DS.Palette.textTertiary)
                 }
 
-                Text(text)
-                    .font(DS.Typography.body)
-                    .foregroundStyle(DS.Palette.textPrimary)
-                    .lineSpacing(4)
-                    .textSelection(.enabled)
-                    .padding(.horizontal, DS.Space.md)
-                    .padding(.vertical, DS.Space.sm + 2)
-                    .background(
-                        RoundedRectangle(cornerRadius: DS.Radius.lg, style: .continuous)
-                            .fill(DS.Palette.assistantBubble)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: DS.Radius.lg, style: .continuous)
-                            .stroke(DS.Palette.border, lineWidth: 0.5)
-                    )
+                VStack(alignment: .leading, spacing: DS.Space.sm) {
+                    ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                        switch segment {
+                        case let .inline(content):
+                            InlineMarkdownText(content: content)
+                        case let .code(language, body):
+                            CodeBlockView(language: language, body: body)
+                        }
+                    }
+                }
+                .padding(.horizontal, DS.Space.md)
+                .padding(.vertical, DS.Space.sm + 2)
+                .background(
+                    RoundedRectangle(cornerRadius: DS.Radius.lg, style: .continuous)
+                        .fill(DS.Palette.assistantBubble)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: DS.Radius.lg, style: .continuous)
+                        .stroke(DS.Palette.border, lineWidth: 0.5)
+                )
             }
             Spacer(minLength: 64)
         }
@@ -1185,5 +1350,146 @@ private struct MissingAPIKeyBanner: View {
         } else {
             "Set up a model from the Models tab before sending messages."
         }
+    }
+}
+
+// MARK: - Markdown segment views
+
+/// Render inline markdown — bold, italic, links, inline code — using Apple's built-in parser.
+/// Fenced code blocks are intentionally NOT handled here; they come through CodeBlockView.
+private struct InlineMarkdownText: View {
+    let content: String
+
+    private var attributed: AttributedString {
+        // `.full` interprets paragraph breaks; that fits multi-line inline text from LLMs better
+        // than the default which collapses newlines.
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        return (try? AttributedString(markdown: content, options: options))
+            ?? AttributedString(content)
+    }
+
+    var body: some View {
+        Text(attributed)
+            .font(DS.Typography.body)
+            .foregroundStyle(DS.Palette.textPrimary)
+            .lineSpacing(4)
+            .textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private struct CodeBlockView: View {
+    let language: String?
+    let body: String
+
+    @State private var copied = false
+
+    var bodyView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text((language?.isEmpty ?? true ? "code" : language!).uppercased())
+                    .font(DS.Typography.captionSmall)
+                    .tracking(1.4)
+                    .foregroundStyle(DS.Palette.textTertiary)
+                Spacer()
+                Button {
+                    copy()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 11, weight: .medium))
+                        Text(copied ? "Copied" : "Copy")
+                            .font(DS.Typography.captionSmall.weight(.medium))
+                    }
+                    .foregroundStyle(copied ? DS.Palette.positive : DS.Palette.textSecondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, DS.Space.sm + 2)
+            .padding(.vertical, 6)
+            .background(DS.Palette.surface.opacity(0.6))
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(body)
+                    .font(DS.Typography.mono)
+                    .foregroundStyle(DS.Palette.textPrimary)
+                    .textSelection(.enabled)
+                    .padding(DS.Space.sm + 2)
+            }
+        }
+        .background(DS.Palette.surfaceElevated.opacity(0.7))
+        .overlay(
+            RoundedRectangle(cornerRadius: DS.Radius.sm, style: .continuous)
+                .stroke(DS.Palette.border, lineWidth: 0.5)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.sm, style: .continuous))
+    }
+
+    var body: some View {
+        bodyView
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func copy() {
+        #if canImport(UIKit)
+        UIPasteboard.general.string = body
+        #elseif canImport(AppKit)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(body, forType: .string)
+        #endif
+        withAnimation(DS.Motion.springSnappy) { copied = true }
+        Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            await MainActor.run {
+                withAnimation(DS.Motion.springSnappy) { copied = false }
+            }
+        }
+    }
+}
+
+// MARK: - Slash command suggestions popover
+
+private struct SlashCommandSuggestions: View {
+    let commands: [SlashCommand]
+    let onPick: (SlashCommand) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(commands) { command in
+                Button {
+                    onPick(command)
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: DS.Space.sm) {
+                        Text(command.prefix)
+                            .font(DS.Typography.mono.weight(.semibold))
+                            .foregroundStyle(DS.Palette.accent)
+                            .frame(width: 72, alignment: .leading)
+                        Text(command.summary)
+                            .font(DS.Typography.callout)
+                            .foregroundStyle(DS.Palette.textPrimary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, DS.Space.sm + 2)
+                    .padding(.vertical, DS.Space.xs + 2)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if command != commands.last {
+                    Divider().overlay(DS.Palette.separator)
+                }
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous)
+                .fill(DS.Palette.surfaceElevated)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous)
+                .stroke(DS.Palette.border, lineWidth: 0.5)
+        )
+        .dsShadow(DS.Shadow.subtle())
     }
 }
