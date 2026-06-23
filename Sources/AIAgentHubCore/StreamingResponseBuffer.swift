@@ -9,6 +9,7 @@ public actor StreamingResponseBuffer {
     public private(set) var currentText: String = ""
     public private(set) var toolCalls: [ToolCallRequest] = []
     public private(set) var usage: TokenUsage?
+    public private(set) var stopReason: StopReason?
     public private(set) var isCompleted: Bool = false
     public private(set) var failure: String?
 
@@ -20,6 +21,7 @@ public actor StreamingResponseBuffer {
         public let text: String
         public let toolCalls: [ToolCallRequest]
         public let usage: TokenUsage?
+        public let stopReason: StopReason?
         public let isCompleted: Bool
         public let failure: String?
 
@@ -27,12 +29,14 @@ public actor StreamingResponseBuffer {
             text: String,
             toolCalls: [ToolCallRequest],
             usage: TokenUsage?,
+            stopReason: StopReason?,
             isCompleted: Bool,
             failure: String?
         ) {
             self.text = text
             self.toolCalls = toolCalls
             self.usage = usage
+            self.stopReason = stopReason
             self.isCompleted = isCompleted
             self.failure = failure
         }
@@ -50,6 +54,11 @@ public actor StreamingResponseBuffer {
 
     public func record(usage: TokenUsage) {
         self.usage = usage
+        broadcast()
+    }
+
+    public func record(stopReason: StopReason) {
+        self.stopReason = stopReason
         broadcast()
     }
 
@@ -71,6 +80,7 @@ public actor StreamingResponseBuffer {
             text: currentText,
             toolCalls: toolCalls,
             usage: usage,
+            stopReason: stopReason,
             isCompleted: isCompleted,
             failure: failure
         )

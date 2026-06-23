@@ -54,6 +54,13 @@ public struct OpenAICompatibleSSEParser: ChatStreamParser {
                     )
                 }
 
+                // OpenAI sends finish_reason in the chunk where the model stops; on the very
+                // last chunk choices is empty and only usage is present, so we read it from
+                // whichever choice exists.
+                if let reason = StopReason.fromOpenAI(envelope.choices.first?.finishReason) {
+                    events.append(.stop(reason))
+                }
+
                 // OpenAI ships usage in the final chunk (with `stream_options: { include_usage: true }`)
                 // as a top-level `usage` field — choices array is empty at that point.
                 if let usage = envelope.usage {
@@ -151,15 +158,21 @@ public struct ClaudeSSEParser: ChatStreamParser {
             }
         }
 
+        var emitted: [ChatStreamEvent] = []
+
         if let toolUse = envelope.contentBlock?.toolUse {
-            return [.toolCall(toolUse)]
+            emitted.append(.toolCall(toolUse))
         }
 
         if let text = envelope.delta?.text, !text.isEmpty {
-            return [.token(text)]
+            emitted.append(.token(text))
         }
 
-        return []
+        if let stop = StopReason.fromClaude(envelope.delta?.stopReason) {
+            emitted.append(.stop(stop))
+        }
+
+        return emitted
     }
 }
 
@@ -169,6 +182,12 @@ private struct OpenAIStreamEnvelope: Decodable {
 
     struct Choice: Decodable {
         var delta: Delta
+        var finishReason: String?
+
+        enum CodingKeys: String, CodingKey {
+            case delta
+            case finishReason = "finish_reason"
+        }
     }
 
     struct Delta: Decodable {
@@ -220,6 +239,13 @@ private struct ClaudeStreamEnvelope: Decodable {
     struct Delta: Decodable {
         var type: String?
         var text: String?
+        var stopReason: String?
+
+        enum CodingKeys: String, CodingKey {
+            case type
+            case text
+            case stopReason = "stop_reason"
+        }
     }
 
     struct ContentBlock: Decodable {
