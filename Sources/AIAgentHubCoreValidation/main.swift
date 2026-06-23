@@ -40,6 +40,11 @@ struct ValidationRunner {
             try validateBranchSession()
             try validateStopReasonParsing()
             try validateLastSessionStore()
+            try validateMessageSegmentParser()
+            try validateContextBuilderTurnAware()
+            try validateBookmarkToggle()
+            try validateSlashCommandParser()
+            try validateTokenEstimator()
             print("AIAgentHubCoreValidation: all checks passed")
         } catch {
             fputs("AIAgentHubCoreValidation failed: \(error)\n", stderr)
@@ -693,6 +698,179 @@ struct ValidationRunner {
         if !condition() {
             throw ValidationError(message)
         }
+    }
+
+    // MARK: - Round 19: markdown segment parser
+
+    private static func validateMessageSegmentParser() throws {
+        // Plain text → one inline segment
+        let plain = MessageSegmentParser.parse("just plain text")
+        try require(plain == [.inline("just plain text")], "plain text segment mismatch")
+
+        // Inline + code + inline
+        let mixed = MessageSegmentParser.parse("""
+        Here is some Swift:
+
+        ```swift
+        let x = 1
+        print(x)
+        ```
+
+        And after.
+        """)
+        try require(mixed.count == 3, "mixed expected 3 segments, got \(mixed.count)")
+        if case let .code(lang, body) = mixed[1] {
+            try require(lang == "swift", "language should be swift")
+            try require(body.contains("let x = 1"), "body should contain code")
+        } else {
+            throw ValidationError("second segment should be code, got \(mixed[1])")
+        }
+
+        // Unclosed fence — trailing becomes code
+        let unclosed = MessageSegmentParser.parse("intro\n```\ncode without closing")
+        try require(unclosed.count == 2, "unclosed fence should still yield 2 segments")
+        if case let .code(lang, body) = unclosed[1] {
+            try require(lang == nil, "no language")
+            try require(body == "code without closing", "body preserved")
+        } else {
+            throw ValidationError("trailing should be code")
+        }
+
+        // No fences, multi-line inline
+        let multiline = MessageSegmentParser.parse("Line one\nLine two")
+        try require(multiline.count == 1, "no fence should yield single inline")
+    }
+
+    // MARK: - Round 20: turn-aware context truncation
+
+    private static func validateContextBuilderTurnAware() throws {
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        // Build 5 turns. Earlier turns should be dropped first when budget shrinks.
+        var messages: [ChatMessageDTO] = []
+        for i in 0..<5 {
+            messages.append(ChatMessageDTO(
+                id: UUID(),
+                role: .user,
+                content: "Q\(i): \(String(repeating: "x", count: 100))",
+                timestamp: base.addingTimeInterval(TimeInterval(i * 10))
+            ))
+            messages.append(ChatMessageDTO(
+                id: UUID(),
+                role: .assistant,
+                content: "A\(i): \(String(repeating: "y", count: 100))",
+                timestamp: base.addingTimeInterval(TimeInterval(i * 10 + 1))
+            ))
+        }
+
+        // Tiny budget: must still keep the newest turn whole.
+        let tiny = ContextBuilder(maxCharacters: 50).build(from: messages)
+        try require(tiny.count == 2, "tiny budget should yield newest turn = 2 messages, got \(tiny.count)")
+        try require(tiny.first?.content.hasPrefix("Q4") == true, "kept turn must be newest user")
+        try require(tiny.last?.content.hasPrefix("A4") == true, "kept turn must include assistant")
+
+        // Medium budget: should keep ~last 2 turns whole
+        let medium = ContextBuilder(maxCharacters: 600).build(from: messages)
+        try require(medium.count == 4 || medium.count == 6, "medium budget should keep 2 or 3 turns whole, got \(medium.count)")
+        try require(medium.last?.content.hasPrefix("A4") == true, "last message should be newest assistant")
+
+        // Generous budget: everything kept
+        let generous = ContextBuilder(maxCharacters: 10_000).build(from: messages)
+        try require(generous.count == 10, "generous budget should keep everything")
+
+        // System message preserved regardless
+        let withSystem = [
+            ChatMessageDTO(role: .system, content: "Always be concise."),
+        ] + messages
+        let result = ContextBuilder(maxCharacters: 50).build(from: withSystem)
+        try require(result.contains { $0.role == .system }, "system message must survive")
+        try require(result.first?.role == .system, "system message must come first")
+    }
+
+    // MARK: - Round 21: bookmark toggle
+
+    private static func validateBookmarkToggle() throws {
+        let repository = InMemoryChatRepository()
+        let session = repository.createSession(title: "Bookmarks", modelConfigId: nil)
+        let m1 = ChatMessageDTO(id: UUID(), role: .user, content: "first", timestamp: Date(timeIntervalSince1970: 1))
+        let m2 = ChatMessageDTO(id: UUID(), role: .assistant, content: "second", timestamp: Date(timeIntervalSince1970: 2))
+        repository.appendMessage(m1, to: session.id)
+        repository.appendMessage(m2, to: session.id)
+
+        // Default not bookmarked
+        try require(repository.messages(for: session.id).contains { $0.id == m1.id && !$0.isBookmarked }, "default isBookmarked should be false")
+
+        // Toggle on
+        repository.toggleBookmark(m1.id, in: session.id)
+        try require(repository.messages(for: session.id).first { $0.id == m1.id }?.isBookmarked == true, "toggle on failed")
+
+        // Toggle off
+        repository.toggleBookmark(m1.id, in: session.id)
+        try require(repository.messages(for: session.id).first { $0.id == m1.id }?.isBookmarked == false, "toggle off failed")
+
+        // Unknown id is a no-op
+        repository.toggleBookmark(UUID(), in: session.id)
+        // No crash → pass
+    }
+
+    // MARK: - Round 22: slash command parser
+
+    private static func validateSlashCommandParser() throws {
+        // Known command + args
+        if case let .command(cmd, args) = SlashCommandParser.parse("/system You are concise.") {
+            try require(cmd == .system, "should be .system")
+            try require(args == "You are concise.", "args mismatch — got \(args)")
+        } else {
+            throw ValidationError("expected .system command")
+        }
+
+        // Known command no args
+        if case let .command(cmd, args) = SlashCommandParser.parse("/help") {
+            try require(cmd == .help, "should be .help")
+            try require(args.isEmpty, "no args expected")
+        } else {
+            throw ValidationError("expected .help command")
+        }
+
+        // Whitespace tolerance
+        if case .command = SlashCommandParser.parse("   /clear   ") {
+        } else {
+            throw ValidationError("whitespace should be tolerated")
+        }
+
+        // Not a command — no slash
+        try require(SlashCommandParser.parse("hello") == .notACommand, "plain text should not parse")
+        // Unknown command name
+        try require(SlashCommandParser.parse("/notarealcommand") == .notACommand, "unknown name should not parse")
+
+        // Suggestions
+        let all = SlashCommandParser.suggestions(forPrefix: "/")
+        try require(all == SlashCommand.allCases, "empty filter should suggest all")
+        let sy = SlashCommandParser.suggestions(forPrefix: "/sy")
+        try require(sy == [.system], "/sy should suggest .system only")
+        let empty = SlashCommandParser.suggestions(forPrefix: "hello")
+        try require(empty.isEmpty, "no leading slash → no suggestions")
+        // Once user typed past the space, suggestions stop
+        let withSpace = SlashCommandParser.suggestions(forPrefix: "/system foo")
+        try require(withSpace.isEmpty, "after the space, no suggestions")
+    }
+
+    // MARK: - Round 23: token estimator
+
+    private static func validateTokenEstimator() throws {
+        try require(TokenEstimator.estimateTokens(in: "") == 0, "empty string should be 0")
+        // ASCII heuristic: chars / 4 floor 1
+        let ascii = TokenEstimator.estimateTokens(in: String(repeating: "x", count: 40))
+        try require(ascii == 10, "40 ascii chars → 10 tokens, got \(ascii)")
+
+        // CJK: each char ≈ 1 token
+        let chinese = "你好世界你好世界"
+        let cjk = TokenEstimator.estimateTokens(in: chinese)
+        try require(cjk >= 8, "CJK should yield ≥ char count, got \(cjk) for 8 chars")
+
+        // Mixed should respect the higher of the two
+        let mixed = "Hello 你好"
+        let m = TokenEstimator.estimateTokens(in: mixed)
+        try require(m >= 2, "mixed should count CJK chars")
     }
 
     // MARK: - Round 13: system prompt injection
