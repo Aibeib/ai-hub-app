@@ -35,6 +35,11 @@ struct ValidationRunner {
             try validateClaudeUsageParsing()
             try await validateAuditRetentionFollowsPreference()
             try validateJSONExport()
+            try await validateSystemPromptInjection()
+            try validateMessageEditAndDeletion()
+            try validateBranchSession()
+            try validateStopReasonParsing()
+            try validateLastSessionStore()
             print("AIAgentHubCoreValidation: all checks passed")
         } catch {
             fputs("AIAgentHubCoreValidation failed: \(error)\n", stderr)
@@ -688,6 +693,196 @@ struct ValidationRunner {
         if !condition() {
             throw ValidationError(message)
         }
+    }
+
+    // MARK: - Round 13: system prompt injection
+
+    private static func validateSystemPromptInjection() async throws {
+        let repository = InMemoryChatRepository()
+        let session = repository.createSession(title: "System prompt", modelConfigId: nil)
+        repository.setSessionSystemPrompt(session.id, systemPrompt: "Speak in haikus only.")
+        try require(repository.session(id: session.id)?.systemPrompt == "Speak in haikus only.", "system prompt did not persist")
+
+        // Whitespace-only is normalized to nil
+        repository.setSessionSystemPrompt(session.id, systemPrompt: "   \n  ")
+        try require(repository.session(id: session.id)?.systemPrompt == nil, "whitespace prompt should normalize to nil")
+
+        // Re-set and confirm orchestrator prepends it
+        repository.setSessionSystemPrompt(session.id, systemPrompt: "Be terse.")
+
+        final class CapturingService: AIService, @unchecked Sendable {
+            var captured: [ChatMessageDTO] = []
+            let lock = NSLock()
+            func streamChat(request: ChatRequest) -> AsyncThrowingStream<ChatStreamEvent, Error> {
+                lock.withLock { captured = request.messages }
+                return AsyncThrowingStream { continuation in
+                    continuation.yield(.token("ok"))
+                    continuation.finish()
+                }
+            }
+        }
+        let capturer = CapturingService()
+        let orchestrator = ChatOrchestrator(repository: repository, aiService: capturer)
+        let model = ResolvedModelConfig(
+            id: UUID(), provider: .openai, name: "Test", modelName: "gpt-test",
+            endpoint: URL(string: "https://example.com"), apiKey: "sk-test",
+            temperature: 0.7, maxTokens: 100
+        )
+        _ = try await orchestrator.sendUserMessage("hi", in: session.id, using: model)
+
+        let captured = capturer.lock.withLock { capturer.captured }
+        try require(captured.first?.role == .system, "system prompt must be first message — got role \(captured.first?.role.rawValue ?? "nil")")
+        try require(captured.first?.content == "Be terse.", "system prompt content mismatch")
+
+        // System prompt presets are well-formed
+        for preset in SystemPromptPreset.allCases {
+            try require(!preset.title.isEmpty, "preset \(preset) missing title")
+            try require(!preset.prompt.isEmpty, "preset \(preset) missing prompt")
+            try require(!preset.summary.isEmpty, "preset \(preset) missing summary")
+        }
+    }
+
+    // MARK: - Round 14: message edit and trailing deletion
+
+    private static func validateMessageEditAndDeletion() throws {
+        let repository = InMemoryChatRepository()
+        let session = repository.createSession(title: "Edit", modelConfigId: nil)
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        let user1 = ChatMessageDTO(id: UUID(), role: .user, content: "First", timestamp: base)
+        let assistant1 = ChatMessageDTO(id: UUID(), role: .assistant, content: "Reply 1", timestamp: base.addingTimeInterval(1))
+        let user2 = ChatMessageDTO(id: UUID(), role: .user, content: "Second", timestamp: base.addingTimeInterval(2))
+        let assistant2 = ChatMessageDTO(id: UUID(), role: .assistant, content: "Reply 2", timestamp: base.addingTimeInterval(3))
+
+        repository.appendMessage(user1, to: session.id)
+        repository.appendMessage(assistant1, to: session.id)
+        repository.appendMessage(user2, to: session.id)
+        repository.appendMessage(assistant2, to: session.id)
+
+        // Update content
+        repository.updateMessageContent(user1.id, in: session.id, newContent: "First (edited)")
+        let updatedFirst = repository.messages(for: session.id).first(where: { $0.id == user1.id })
+        try require(updatedFirst?.content == "First (edited)", "edit did not persist")
+
+        // Delete messages after user1 — should drop assistant1, user2, assistant2
+        repository.deleteMessagesAfter(user1.id, in: session.id)
+        let remaining = repository.messages(for: session.id)
+        try require(remaining.count == 1, "deleteMessagesAfter should leave just the anchor — got \(remaining.count)")
+        try require(remaining.first?.id == user1.id, "remaining message id mismatch")
+
+        // No-op when cutoff is the last message
+        repository.deleteMessagesAfter(user1.id, in: session.id)
+        try require(repository.messages(for: session.id).count == 1, "no-op delete should not change count")
+
+        // No-op when message id is not found
+        repository.deleteMessagesAfter(UUID(), in: session.id)
+        try require(repository.messages(for: session.id).count == 1, "missing cutoff should be a no-op")
+    }
+
+    // MARK: - Round 17: branch session
+
+    private static func validateBranchSession() throws {
+        let repository = InMemoryChatRepository()
+        let original = repository.createSession(title: "Source", modelConfigId: UUID())
+        repository.setSessionSystemPrompt(original.id, systemPrompt: "Be helpful.")
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        let m1 = ChatMessageDTO(id: UUID(), role: .user, content: "A", timestamp: base)
+        let m2 = ChatMessageDTO(id: UUID(), role: .assistant, content: "B", timestamp: base.addingTimeInterval(1))
+        let m3 = ChatMessageDTO(id: UUID(), role: .user, content: "C", timestamp: base.addingTimeInterval(2))
+        repository.appendMessage(m1, to: original.id)
+        repository.appendMessage(m2, to: original.id)
+        repository.appendMessage(m3, to: original.id)
+
+        // Branch up to m2
+        guard let branched = repository.branchSession(original.id, upToMessageId: m2.id, newTitle: "Branched") else {
+            throw ValidationError("branchSession returned nil")
+        }
+        try require(branched.id != original.id, "branch should produce a new id")
+        try require(branched.title == "Branched", "branch title mismatch")
+        try require(branched.modelConfigId == original.modelConfigId, "branch should inherit modelConfigId")
+        try require(branched.systemPrompt == "Be helpful.", "branch should inherit system prompt")
+
+        let branchedMessages = repository.messages(for: branched.id)
+        try require(branchedMessages.count == 2, "branch should contain 2 messages — got \(branchedMessages.count)")
+        try require(branchedMessages.map(\.content) == ["A", "B"], "branch content mismatch")
+        // Branched messages must have fresh ids — editing one shouldn't affect the source
+        try require(branchedMessages[0].id != m1.id, "branched message id must be different")
+
+        // Source untouched
+        try require(repository.messages(for: original.id).count == 3, "source session should not be modified")
+
+        // Unknown cutoff returns nil
+        try require(repository.branchSession(original.id, upToMessageId: UUID(), newTitle: "X") == nil, "branch with bad cutoff should return nil")
+    }
+
+    // MARK: - Round 15: stop reason parsing
+
+    private static func validateStopReasonParsing() throws {
+        // OpenAI mapping
+        try require(StopReason.fromOpenAI("stop") == .endTurn, "OpenAI stop → endTurn")
+        try require(StopReason.fromOpenAI("length") == .maxTokens, "OpenAI length → maxTokens")
+        try require(StopReason.fromOpenAI("tool_calls") == .toolUse, "OpenAI tool_calls → toolUse")
+        try require(StopReason.fromOpenAI("content_filter") == .contentFilter, "OpenAI content_filter")
+        try require(StopReason.fromOpenAI(nil) == nil, "nil → nil")
+
+        // Claude mapping
+        try require(StopReason.fromClaude("end_turn") == .endTurn, "Claude end_turn")
+        try require(StopReason.fromClaude("max_tokens") == .maxTokens, "Claude max_tokens")
+        try require(StopReason.fromClaude("tool_use") == .toolUse, "Claude tool_use")
+        try require(StopReason.fromClaude("stop_sequence") == .stopSequence, "Claude stop_sequence")
+
+        // Truncation predicate
+        try require(StopReason.maxTokens.isTruncation, "maxTokens should be truncation")
+        try require(!StopReason.endTurn.isTruncation, "endTurn should not be truncation")
+
+        // Display label populated
+        for reason in [StopReason.endTurn, .maxTokens, .toolUse, .stopSequence, .contentFilter, .other] {
+            try require(!reason.displayLabel.isEmpty, "stop reason \(reason) missing display label")
+        }
+
+        // OpenAI SSE parse — finish_reason carried through
+        let payload = """
+        data: {"choices":[{"delta":{"content":"Hi"},"finish_reason":"length"}]}
+
+        data: [DONE]
+
+        """
+        let events = try OpenAICompatibleSSEParser().parse(payload.data(using: .utf8)!)
+        try require(events.contains(.stop(.maxTokens)), "OpenAI finish_reason should surface as .stop(.maxTokens)")
+
+        // Claude SSE parse — message_delta stop_reason
+        let claudePayload = """
+        event: message_delta
+        data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
+
+        event: message_stop
+        data: {"type":"message_stop"}
+
+        """
+        let claudeEvents = try ClaudeSSEParser().parse(claudePayload.data(using: .utf8)!)
+        try require(claudeEvents.contains(.stop(.endTurn)), "Claude stop_reason should surface")
+    }
+
+    // MARK: - Round 16: last session store
+
+    private static func validateLastSessionStore() throws {
+        let memoryStore = InMemoryLastSessionStore()
+        try require(memoryStore.load() == nil, "fresh store should return nil")
+        let id = UUID()
+        memoryStore.save(id)
+        try require(memoryStore.load() == id, "saved id should round-trip")
+        memoryStore.save(nil)
+        try require(memoryStore.load() == nil, "saving nil should clear")
+
+        // UserDefaults backing
+        guard let suite = UserDefaults(suiteName: "aiagenthub.tests.lastsession.\(UUID().uuidString)") else {
+            throw ValidationError("could not create suite")
+        }
+        let defaults = UserDefaultsLastSessionStore(defaults: suite, key: "last")
+        try require(defaults.load() == nil, "fresh UserDefaults store should return nil")
+        defaults.save(id)
+        try require(defaults.load() == id, "UserDefaults round-trip")
+        defaults.save(nil)
+        try require(defaults.load() == nil, "UserDefaults clear")
     }
 
     // MARK: - Round 4: privacy enforcement
