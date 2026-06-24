@@ -22,6 +22,9 @@
 		A10000000000000000000013 /* Networking/BonjourDeviceDiscoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* Networking/BonjourDeviceDiscoveryService.swift */; };
 		A10000000000000000000014 /* DesignSystem/DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* DesignSystem/DesignTokens.swift */; };
 		A10000000000000000000015 /* DesignSystem/DSComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* DesignSystem/DSComponents.swift */; };
+		A10000000000000000000016 /* Localization/AppLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* Localization/AppLanguage.swift */; };
+		A10000000000000000000017 /* Localization/L10n.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* Localization/L10n.swift */; };
+		A10000000000000000000018 /* UI/ModelVariantCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000016 /* UI/ModelVariantCatalog.swift */; };
 		A11000000000000000000001 /* DomainModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000001 /* DomainModels.swift */; };
 		A11000000000000000000002 /* PrivacyRedactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000002 /* PrivacyRedactor.swift */; };
 		A11000000000000000000003 /* Secrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000003 /* Secrets.swift */; };
@@ -49,6 +52,7 @@
 		A11000000000000000000025 /* StreamingResponseBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000025 /* StreamingResponseBuffer.swift */; };
 		A11000000000000000000026 /* SystemPromptPreset.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000026 /* SystemPromptPreset.swift */; };
 		A11000000000000000000027 /* TokenEstimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000027 /* TokenEstimator.swift */; };
+		A1A000000000000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2A000000000000000000001 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -89,6 +93,9 @@
 		A20000000000000000000011 /* Networking/BonjourDeviceDiscoveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Networking/BonjourDeviceDiscoveryService.swift; sourceTree = "<group>"; };
 		A20000000000000000000012 /* DesignSystem/DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem/DesignTokens.swift; sourceTree = "<group>"; };
 		A20000000000000000000013 /* DesignSystem/DSComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem/DSComponents.swift; sourceTree = "<group>"; };
+		A20000000000000000000014 /* Localization/AppLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization/AppLanguage.swift; sourceTree = "<group>"; };
+		A20000000000000000000015 /* Localization/L10n.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization/L10n.swift; sourceTree = "<group>"; };
+		A20000000000000000000016 /* UI/ModelVariantCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/ModelVariantCatalog.swift; sourceTree = "<group>"; };
 		A21000000000000000000001 /* DomainModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomainModels.swift; sourceTree = "<group>"; };
 		A21000000000000000000002 /* PrivacyRedactor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyRedactor.swift; sourceTree = "<group>"; };
 		A21000000000000000000003 /* Secrets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Secrets.swift; sourceTree = "<group>"; };
@@ -118,6 +125,7 @@
 		A21000000000000000000027 /* TokenEstimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenEstimator.swift; sourceTree = "<group>"; };
 		A30000000000000000000001 /* AIAgentHub.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AIAgentHub.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A30000000000000000000002 /* AIAgentHubCore.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = AIAgentHubCore.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		A2A000000000000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -189,6 +197,10 @@
 				A20000000000000000000005 /* UI/ModelConfigListView.swift */,
 				A20000000000000000000006 /* UI/DeviceManagementView.swift */,
 				A20000000000000000000007 /* UI/PrivacyAndLogsView.swift */,
+				A20000000000000000000014 /* Localization/AppLanguage.swift */,
+				A20000000000000000000015 /* Localization/L10n.swift */,
+				A20000000000000000000016 /* UI/ModelVariantCatalog.swift */,
+				A2A000000000000000000001 /* Assets.xcassets */,
 			);
 			path = AIAgentHub;
 			sourceTree = "<group>";
@@ -236,6 +248,7 @@
 			buildPhases = (
 				A60000000000000000000001 /* Sources */,
 				A14000000000000000000001 /* Frameworks */,
+				A1B000000000000000000001 /* Resources */,
 				A13000000000000000000001 /* Embed Frameworks */,
 			);
 			buildRules = (
@@ -319,6 +332,9 @@
 				A10000000000000000000013 /* Networking/BonjourDeviceDiscoveryService.swift in Sources */,
 				A10000000000000000000014 /* DesignSystem/DesignTokens.swift in Sources */,
 				A10000000000000000000015 /* DesignSystem/DSComponents.swift in Sources */,
+				A10000000000000000000016 /* Localization/AppLanguage.swift in Sources */,
+				A10000000000000000000017 /* Localization/L10n.swift in Sources */,
+				A10000000000000000000018 /* UI/ModelVariantCatalog.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -357,6 +373,17 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A1B000000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1A000000000000000000001 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
 		A80000000000000000000001 /* PBXTargetDependency */ = {

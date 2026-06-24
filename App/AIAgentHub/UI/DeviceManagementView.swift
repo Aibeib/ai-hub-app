@@ -3,6 +3,7 @@ import AIAgentHubCore
 
 struct DeviceManagementView: View {
     @Environment(AppRuntime.self) private var runtime
+    @Environment(\.appLanguage) private var language
     @State private var discoveredDevices: [DiscoveredDevice] = []
     @State private var manualHost = ""
     @State private var commandText = "Create a draft report"
@@ -17,10 +18,10 @@ struct DeviceManagementView: View {
             VStack(alignment: .leading, spacing: DS.Space.lg) {
                 // Header
                 VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                    Text("Devices")
+                    Text(language[.devicesTitle])
                         .font(DS.Typography.display)
                         .foregroundStyle(DS.Palette.textPrimary)
-                    Text("Discover and pair with Macs on your local network for cross-device execution.")
+                    Text(language[.devicesSubtitle])
                         .font(DS.Typography.body)
                         .foregroundStyle(DS.Palette.textSecondary)
                         .lineSpacing(3)
@@ -30,7 +31,7 @@ struct DeviceManagementView: View {
 
                 // Discovered
                 DSSectionHeader(
-                    "Discovered",
+                    language[.devicesSectionDiscovered],
                     trailing: AnyView(
                         HStack(spacing: DS.Space.sm) {
                             if isScanning {
@@ -69,26 +70,26 @@ struct DeviceManagementView: View {
                     HStack(spacing: DS.Space.sm) {
                         Image(systemName: "antenna.radiowaves.left.and.right")
                             .foregroundStyle(DS.Palette.textTertiary)
-                        Text(isScanning ? "Scanning your local network…" : "No devices found. Make sure your Mac is on the same Wi-Fi network.")
+                        Text(isScanning ? language[.devicesScanning] : language[.devicesEmptyDiscovered])
                             .font(DS.Typography.caption)
                             .foregroundStyle(DS.Palette.textTertiary)
                     }
                     .padding(.horizontal, DS.Space.xl)
                 } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: DS.Space.lg)], spacing: DS.Space.lg) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: DS.Space.lg)], spacing: DS.Space.lg) {
                         ForEach(discoveredDevices) { device in
                             DeviceCard(
                                 kind: .discovered,
                                 name: device.name,
                                 detail: "\(device.host):\(device.port)",
                                 status: .idle,
-                                action: (label: "Pair", run: {
+                                action: (label: language[.devicesActionPair], run: {
                                     Task {
                                         do {
                                             let bound = try await runtime.deviceCoordinator.pair(device)
-                                            statusMessage = "Paired \(bound.name)"
+                                            statusMessage = (language == .zh ? "已配对 " : "Paired ") + bound.name
                                         } catch {
-                                            statusMessage = "Pairing failed: \(error.localizedDescription)"
+                                            statusMessage = (language == .zh ? "配对失败: " : "Pairing failed: ") + error.localizedDescription
                                         }
                                     }
                                 })
@@ -99,10 +100,10 @@ struct DeviceManagementView: View {
                 }
 
                 // Manual IP
-                DSSectionHeader("Add Manually")
+                DSSectionHeader(language[.devicesSectionAddManually])
 
                 HStack(spacing: DS.Space.sm) {
-                    TextField("Mac IP address", text: $manualHost)
+                    TextField(language[.devicesManualPlaceholder], text: $manualHost)
                         .textFieldStyle(.plain)
                         .font(DS.Typography.callout)
                         .textInputAutocapitalization(.never)
@@ -124,16 +125,16 @@ struct DeviceManagementView: View {
                             host: manualHost,
                             port: 41_731
                         )
-                        statusMessage = "Added \(manualHost)"
+                        statusMessage = (language == .zh ? "已添加 " : "Added ") + manualHost
                         manualHost = ""
                     } label: {
-                        Text("Add")
+                        Text(language[.devicesManualAdd])
                             .font(DS.Typography.caption.weight(.semibold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, DS.Space.md)
                             .padding(.vertical, DS.Space.xs)
                             .background(
-                                Capsule().fill(manualHost.isEmpty ? DS.Palette.textTertiary : DS.Palette.textPrimary)
+                                Capsule().fill(manualHost.isEmpty ? DS.Palette.textTertiary : DS.Palette.accent)
                             )
                     }
                     .buttonStyle(.plain)
@@ -142,19 +143,19 @@ struct DeviceManagementView: View {
                 .padding(.horizontal, DS.Space.xl)
 
                 // Bound
-                DSSectionHeader("Connected")
+                DSSectionHeader(language[.devicesSectionConnected])
 
                 if boundDevices.isEmpty {
                     HStack(spacing: DS.Space.sm) {
                         Image(systemName: "desktopcomputer")
                             .foregroundStyle(DS.Palette.textTertiary)
-                        Text("No paired devices yet.")
+                        Text(language[.devicesEmptyConnected])
                             .font(DS.Typography.caption)
                             .foregroundStyle(DS.Palette.textTertiary)
                     }
                     .padding(.horizontal, DS.Space.xl)
                 } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: DS.Space.lg)], spacing: DS.Space.lg) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: DS.Space.lg)], spacing: DS.Space.lg) {
                         ForEach(boundDevices) { device in
                             DeviceCard(
                                 kind: .bound,
@@ -170,10 +171,10 @@ struct DeviceManagementView: View {
 
                 // Remote command
                 if !boundDevices.isEmpty {
-                    DSSectionHeader("Remote Command")
+                    DSSectionHeader(language[.devicesSectionRemoteCommand])
 
                     VStack(alignment: .leading, spacing: DS.Space.sm) {
-                        TextField("Instruction", text: $commandText, axis: .vertical)
+                        TextField(language[.devicesCommandInstructionPlaceholder], text: $commandText, axis: .vertical)
                             .lineLimit(1...3)
                             .textFieldStyle(.plain)
                             .font(DS.Typography.body)
@@ -190,7 +191,7 @@ struct DeviceManagementView: View {
 
                         Toggle(isOn: $highRiskCommand) {
                             HStack(spacing: DS.Space.xs) {
-                                Text("High risk")
+                                Text(language[.devicesCommandHighRisk])
                                     .font(DS.Typography.callout)
                                 if highRiskCommand {
                                     DSStatusDot(status: .warn, animated: true)
@@ -205,11 +206,11 @@ struct DeviceManagementView: View {
                                 Button {
                                     Task { await sendCommand(to: device) }
                                 } label: {
-                                    Label("Send to \(device.name)", systemImage: "arrow.up.message")
+                                    Label(String(format: language[.devicesCommandSend], device.name), systemImage: "arrow.up.message")
                                         .font(DS.Typography.caption.weight(.semibold))
                                 }
                                 .buttonStyle(.borderedProminent)
-                                .tint(highRiskCommand ? DS.Palette.warning : DS.Palette.textPrimary)
+                                .tint(highRiskCommand ? DS.Palette.warning : DS.Palette.accent)
                             }
                         }
                     }
@@ -219,7 +220,7 @@ struct DeviceManagementView: View {
                 // Logs
                 let logs = runtime.remoteCommandEntries
                 if !logs.isEmpty {
-                    DSSectionHeader("Command Log")
+                    DSSectionHeader(language[.devicesSectionCommandLog])
 
                     ForEach(logs) { entry in
                         VStack(alignment: .leading, spacing: 4) {
@@ -277,7 +278,7 @@ struct DeviceManagementView: View {
             let result = try await runtime.deviceCoordinator.send(command, to: device)
             statusMessage = result.output
         } catch {
-            statusMessage = "Command failed: \(error.localizedDescription)"
+            statusMessage = (language == .zh ? "指令失败: " : "Command failed: ") + error.localizedDescription
         }
     }
 }
@@ -317,7 +318,7 @@ private struct DeviceCard: View {
 
             Spacer()
 
-            DSStatusDot(status: status, animated: true)
+            DSStatusDot(status: status, animated: false)
 
             if let action {
                 Button(action: action.run) {

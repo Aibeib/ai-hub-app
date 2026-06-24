@@ -18,7 +18,11 @@ struct DSBadge: View {
 
 // MARK: - DSStatusDot
 
-/// 8pt status dot with optional pulsing animation
+/// 8pt status dot with optional pulsing animation.
+///
+/// We deliberately animate `opacity` on a fixed-size ring rather than stroke width.
+/// Animating stroke width changes the path geometry and triggers SwiftUI to re-layout
+/// every frame; opacity animates on the layer alone and is free on the compositor.
 struct DSStatusDot: View {
     enum Status {
         case live, idle, warn, offline
@@ -43,7 +47,8 @@ struct DSStatusDot: View {
             .frame(width: 8, height: 8)
             .overlay(
                 Circle()
-                    .stroke(status.color.opacity(0.4), lineWidth: animated && pulse ? 6 : 0)
+                    .stroke(status.color.opacity(0.4), lineWidth: animated ? 4 : 0)
+                    .opacity(animated && pulse ? 0.0 : 1.0)
             )
             .onAppear {
                 guard animated else { return }

@@ -4,6 +4,7 @@ public enum ModelProvider: String, Codable, CaseIterable, Sendable {
     case openai
     case deepseek
     case anthropic
+    case volcengine
     case apple
 
     public var displayName: String {
@@ -14,6 +15,8 @@ public enum ModelProvider: String, Codable, CaseIterable, Sendable {
             "DeepSeek"
         case .anthropic:
             "Claude"
+        case .volcengine:
+            "火山方舟"
         case .apple:
             "Apple Foundation Models"
         }
@@ -27,6 +30,8 @@ public enum ModelProvider: String, Codable, CaseIterable, Sendable {
             URL(string: "https://api.deepseek.com/chat/completions")
         case .anthropic:
             URL(string: "https://api.anthropic.com/v1/messages")
+        case .volcengine:
+            URL(string: "https://ark.cn-beijing.volces.com/api/v3/chat/completions")
         case .apple:
             nil
         }

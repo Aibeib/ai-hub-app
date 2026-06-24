@@ -2,9 +2,10 @@ import SwiftUI
 
 /// Design tokens for AI Agent Hub.
 ///
-/// Direction: "Quiet editorial" — warm off-white in light mode, deep ink in dark mode, with a
-/// single warm clay accent. Generous whitespace, refined typography, soft layered depth. The
-/// goal is for the app to feel calm and considered rather than another templated AI chat UI.
+/// Direction: "Quiet luxury, violet ink" — paired with the brand mark (gradient indigo→violet).
+/// Light mode is a clean, slightly cool off-white anchored by a saturated violet accent. Dark
+/// mode is a deep indigo-black, the same family as the icon's gradient base. Both feel like the
+/// same product, not two inverted skins.
 public enum DS {}
 
 // MARK: - Palette
@@ -13,92 +14,92 @@ public extension DS {
     /// Adaptive palette. Each entry has explicit light/dark values so neither mode looks like a
     /// machine-inverted copy of the other.
     enum Palette {
-        /// Page background — warm off-white / deep ink
+        /// Page background — slightly cool off-white in light, deep indigo-black in dark
         public static let surface = Color(
-            light: Color(red: 0.984, green: 0.973, blue: 0.957),
-            dark: Color(red: 0.063, green: 0.075, blue: 0.090)
+            light: Color(red: 0.973, green: 0.969, blue: 0.984),
+            dark: Color(red: 0.055, green: 0.051, blue: 0.110)
         )
 
         /// Raised cards and side rails — slightly elevated from `surface`
         public static let surfaceRaised = Color(
-            light: Color(red: 1.0, green: 0.996, blue: 0.984),
-            dark: Color(red: 0.094, green: 0.110, blue: 0.133)
+            light: Color(red: 0.988, green: 0.984, blue: 0.996),
+            dark: Color(red: 0.086, green: 0.082, blue: 0.157)
         )
 
         /// Most-elevated layer — bubbles, inputs, model cards
         public static let surfaceElevated = Color(
             light: Color(red: 1.0, green: 1.0, blue: 1.0),
-            dark: Color(red: 0.133, green: 0.149, blue: 0.176)
+            dark: Color(red: 0.122, green: 0.118, blue: 0.196)
         )
 
         /// Primary ink (headlines, body text)
         public static let textPrimary = Color(
-            light: Color(red: 0.078, green: 0.078, blue: 0.094),
-            dark: Color(red: 0.961, green: 0.953, blue: 0.937)
+            light: Color(red: 0.094, green: 0.082, blue: 0.149),
+            dark: Color(red: 0.957, green: 0.957, blue: 0.973)
         )
 
         /// Secondary copy, captions, metadata
         public static let textSecondary = Color(
-            light: Color(red: 0.337, green: 0.337, blue: 0.353),
-            dark: Color(red: 0.659, green: 0.667, blue: 0.690)
+            light: Color(red: 0.345, green: 0.333, blue: 0.412),
+            dark: Color(red: 0.682, green: 0.690, blue: 0.745)
         )
 
         /// Quiet copy, placeholders, dividers
         public static let textTertiary = Color(
-            light: Color(red: 0.553, green: 0.541, blue: 0.525),
-            dark: Color(red: 0.420, green: 0.435, blue: 0.467)
+            light: Color(red: 0.541, green: 0.529, blue: 0.604),
+            dark: Color(red: 0.443, green: 0.451, blue: 0.522)
         )
 
-        /// Hero accent — warm clay. Used sparingly, never decoratively.
+        /// Hero accent — saturated violet matching the icon's mid-band
         public static let accent = Color(
-            light: Color(red: 0.722, green: 0.275, blue: 0.169),
-            dark: Color(red: 0.937, green: 0.612, blue: 0.380)
+            light: Color(red: 0.467, green: 0.298, blue: 0.929),
+            dark: Color(red: 0.659, green: 0.522, blue: 1.000)
         )
 
         /// Soft tint of accent — for active-state backgrounds, badges
         public static let accentSoft = Color(
-            light: Color(red: 0.984, green: 0.918, blue: 0.875),
-            dark: Color(red: 0.235, green: 0.149, blue: 0.122)
+            light: Color(red: 0.937, green: 0.910, blue: 0.996),
+            dark: Color(red: 0.184, green: 0.149, blue: 0.298)
         )
 
         /// Hairlines, separator strokes
         public static let separator = Color(
-            light: Color(red: 0.910, green: 0.886, blue: 0.847),
-            dark: Color(red: 0.184, green: 0.200, blue: 0.227)
+            light: Color(red: 0.898, green: 0.886, blue: 0.929),
+            dark: Color(red: 0.192, green: 0.184, blue: 0.275)
         )
 
         /// Subtle border on surfaces
         public static let border = Color(
-            light: Color(red: 0.918, green: 0.890, blue: 0.847),
-            dark: Color(red: 0.227, green: 0.243, blue: 0.275)
+            light: Color(red: 0.906, green: 0.894, blue: 0.937),
+            dark: Color(red: 0.231, green: 0.220, blue: 0.318)
         )
 
-        // Semantic
+        // Semantic — tuned so they read against the indigo-black bg in dark mode
         public static let positive = Color(
             light: Color(red: 0.169, green: 0.467, blue: 0.341),
-            dark: Color(red: 0.451, green: 0.776, blue: 0.604)
+            dark: Color(red: 0.494, green: 0.804, blue: 0.620)
         )
         public static let warning = Color(
-            light: Color(red: 0.643, green: 0.408, blue: 0.118),
-            dark: Color(red: 0.937, green: 0.706, blue: 0.388)
+            light: Color(red: 0.741, green: 0.486, blue: 0.137),
+            dark: Color(red: 0.973, green: 0.745, blue: 0.408)
         )
         public static let danger = Color(
-            light: Color(red: 0.690, green: 0.165, blue: 0.165),
-            dark: Color(red: 0.945, green: 0.490, blue: 0.471)
+            light: Color(red: 0.769, green: 0.227, blue: 0.337),
+            dark: Color(red: 0.973, green: 0.486, blue: 0.580)
         )
 
         // Bubble specifics
         public static let userBubble = Color(
-            light: Color(red: 0.078, green: 0.078, blue: 0.094),
-            dark: Color(red: 0.937, green: 0.612, blue: 0.380)
+            light: Color(red: 0.467, green: 0.298, blue: 0.929),
+            dark: Color(red: 0.553, green: 0.408, blue: 0.965)
         )
         public static let userBubbleText = Color(
-            light: Color(red: 0.984, green: 0.973, blue: 0.957),
-            dark: Color(red: 0.063, green: 0.075, blue: 0.090)
+            light: Color.white,
+            dark: Color.white
         )
         public static let assistantBubble = Color(
             light: Color(red: 1.0, green: 1.0, blue: 1.0),
-            dark: Color(red: 0.133, green: 0.149, blue: 0.176)
+            dark: Color(red: 0.122, green: 0.118, blue: 0.196)
         )
 
         // Provider brand chips
@@ -110,10 +111,12 @@ public extension DS {
                 Color(red: 0.231, green: 0.412, blue: 0.851)
             case "anthropic", "claude":
                 Color(red: 0.769, green: 0.467, blue: 0.247)
+            case "volcengine", "火山方舟", "ark":
+                Color(red: 0.929, green: 0.396, blue: 0.243)  // 火山橘红
             case "apple", "apple foundation models":
                 Color(red: 0.392, green: 0.392, blue: 0.408)
             default:
-                Color(red: 0.435, green: 0.451, blue: 0.490)
+                Color(red: 0.467, green: 0.298, blue: 0.929)
             }
         }
     }
@@ -246,11 +249,19 @@ import AppKit
 // MARK: - View modifiers
 
 public extension View {
+    /// No-op shadow on iOS — `shadow(radius:)` triggers an off-screen render pass per call.
+    /// On scrollable views with dozens of `dsCard()` instances this is the dominant frame-
+    /// drop source on real devices. We keep the API so call sites compile, but visually we
+    /// fall back to the stroke + slight surface elevation built into `dsCard`. Re-enable
+    /// per call site with `.shadow(...)` only when the card is truly hero-level.
     func dsShadow(_ style: DS.ShadowStyle) -> some View {
-        shadow(color: style.color, radius: style.radius, x: style.x, y: style.y)
+        // Keep the call cheap: just return self. We *don't* call `.shadow(...)` here.
+        self
     }
 
-    /// Card surface with subtle stroke and depth — used everywhere instead of raw `.background`.
+    /// Card surface with subtle stroke — used everywhere instead of raw `.background`.
+    /// No shadow: the visual lift comes from the stroke + a brighter fill against the
+    /// page surface, which is GPU-free.
     func dsCard(_ corner: CGFloat = DS.Radius.lg) -> some View {
         modifier(DSCardModifier(corner: corner))
     }
@@ -263,7 +274,6 @@ public extension View {
 
 private struct DSCardModifier: ViewModifier {
     let corner: CGFloat
-    @Environment(\.colorScheme) private var scheme
 
     func body(content: Content) -> some View {
         content
@@ -275,7 +285,6 @@ private struct DSCardModifier: ViewModifier {
                 RoundedRectangle(cornerRadius: corner, style: .continuous)
                     .stroke(DS.Palette.border, lineWidth: 0.5)
             )
-            .dsShadow(DS.Shadow.subtle(scheme))
     }
 }
 

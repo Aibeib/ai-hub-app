@@ -6,6 +6,7 @@ import AIAgentHubCore
 struct AIAgentHubApp: App {
     private let container: ModelContainer
     @State private var runtime: AppRuntime
+    @State private var languagePreference = AppLanguagePreference()
 
     init() {
         do {
@@ -26,6 +27,8 @@ struct AIAgentHubApp: App {
         WindowGroup {
             RootView()
                 .environment(runtime)
+                .environment(languagePreference)
+                .environment(\.appLanguage, languagePreference.current)
         }
         .modelContainer(container)
     }

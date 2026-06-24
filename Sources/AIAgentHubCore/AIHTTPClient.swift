@@ -17,8 +17,26 @@ public protocol AIHTTPClient: Sendable {
 public struct URLSessionAIHTTPClient: AIHTTPClient {
     private let session: URLSession
 
-    public init(session: URLSession = .shared) {
+    public init(session: URLSession = URLSessionAIHTTPClient.makeStreamingSession()) {
         self.session = session
+    }
+
+    /// Build a URLSession tuned for long-lived SSE streams. `.shared` is fine in development
+    /// but its default config aggressively reuses connections and applies caching/cookie
+    /// behaviour that has caused intermittent crashes inside `URLSession.bytes(for:)` on
+    /// iOS 17.x when the remote keeps a connection open for streaming. A dedicated config
+    /// with disabled caching, no cookie storage, and a generous request timeout has been
+    /// the safest baseline for OpenAI-compatible SSE endpoints.
+    public static func makeStreamingSession() -> URLSession {
+        let config = URLSessionConfiguration.default
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.urlCache = nil
+        config.httpCookieStorage = nil
+        config.httpShouldSetCookies = false
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 600
+        config.waitsForConnectivity = false
+        return URLSession(configuration: config)
     }
 
     public func bytes(for request: URLRequest) async throws -> AsyncThrowingStream<Data, Error> {
@@ -100,7 +118,7 @@ public struct OpenAICompatibleRequestBuilder: ProviderRequestBuilder {
 
         var urlRequest = URLRequest(url: endpoint)
         urlRequest.httpMethod = "POST"
-        urlRequest.timeoutInterval = 15
+        urlRequest.timeoutInterval = 60
         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.httpBody = try JSONEncoder().encode(
@@ -132,7 +150,7 @@ public struct ClaudeRequestBuilder: ProviderRequestBuilder {
 
         var urlRequest = URLRequest(url: endpoint)
         urlRequest.httpMethod = "POST"
-        urlRequest.timeoutInterval = 15
+        urlRequest.timeoutInterval = 60
         urlRequest.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         urlRequest.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -155,7 +173,7 @@ public struct ClaudeRequestBuilder: ProviderRequestBuilder {
 public enum AIServiceFactory {
     public static func make(provider: ModelProvider, client: any AIHTTPClient = URLSessionAIHTTPClient()) -> any AIService {
         switch provider {
-        case .openai, .deepseek:
+        case .openai, .deepseek, .volcengine:
             ProviderAIService(
                 client: client,
                 parser: OpenAICompatibleSSEParser(),

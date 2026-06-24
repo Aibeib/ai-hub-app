@@ -3,6 +3,8 @@ import AIAgentHubCore
 
 struct ChatHomeView: View {
     @Environment(AppRuntime.self) private var runtime
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.appLanguage) private var language
     @State private var selectedSessionId: UUID?
     @State private var draft = ""
     @State private var isSending = false
@@ -14,6 +16,7 @@ struct ChatHomeView: View {
     @State private var lastFailedSend: FailedSend?
     @State private var editingMessage: MessageEditTarget?
     @State private var systemPromptDraft: SystemPromptDraft?
+    @State private var isShowingSessionList = false
     @FocusState private var inputFocused: Bool
 
     private struct FailedSend: Equatable {
@@ -53,54 +56,70 @@ struct ChatHomeView: View {
         return runtime.sessions.first { $0.id == id }
     }
 
+    private var isCompact: Bool {
+        horizontalSizeClass == .compact
+    }
+
     var body: some View {
-        HStack(spacing: 0) {
-            sessionListPane
-                .frame(minWidth: 260, idealWidth: 280, maxWidth: 320)
-
-            Divider().overlay(DS.Palette.separator)
-
-            transcriptPane
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        Group {
+            if isCompact {
+                compactBody
+            } else {
+                regularBody
+            }
         }
         .background(DS.Palette.surface)
         .alert(
-            "Message failed",
+            language[.alertMessageFailedTitle],
             isPresented: Binding(
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }
             ),
             presenting: lastFailedSend
         ) { failed in
-            Button("Retry") {
+            Button(language[.actionRetry]) {
                 Task { await retryFailedSend(failed) }
             }
-            Button("Edit", role: .cancel) {
+            Button(language == .zh ? "编辑" : "Edit", role: .cancel) {
                 draft = failed.message
             }
-            Button("Dismiss", role: .destructive) {
+            Button(language[.actionDismiss], role: .destructive) {
                 lastFailedSend = nil
             }
         } message: { failed in
             Text(failed.errorDescription)
         }
         .sheet(item: $exportPayload) { payload in
-            ConversationExportView(payload: payload)
+            ConversationExportView(payload: payload, language: language)
         }
         .sheet(item: $editingMessage) { target in
-            MessageEditView(target: target) { newContent in
+            MessageEditView(target: target, language: language) { newContent in
                 handleMessageEdit(target: target, newContent: newContent)
             }
         }
         .sheet(item: $systemPromptDraft) { draft in
             SystemPromptEditorView(
                 initial: draft.content,
+                language: language,
                 onSave: { newPrompt in
                     runtime.setSystemPrompt(draft.sessionId, prompt: newPrompt)
                 }
             )
         }
-        .toolbar(.hidden, for: .navigationBar)
+        .sheet(isPresented: $isShowingSessionList) {
+            NavigationStack {
+                sessionListPane(forSheet: true)
+                    .navigationTitle(language[.chatHistory])
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button(language[.actionDone]) {
+                                isShowingSessionList = false
+                            }
+                        }
+                    }
+            }
+        }
         .onAppear {
             if selectedSessionId == nil {
                 selectedSessionId = runtime.restorableSessionId()
@@ -111,46 +130,158 @@ struct ChatHomeView: View {
         }
     }
 
-    // MARK: - Session list pane
+    // MARK: - Compact (iPhone) layout
 
-    private var sessionListPane: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Top header with new chat button
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Conversations")
-                        .font(DS.Typography.title)
-                        .foregroundStyle(DS.Palette.textPrimary)
-                    Text("\(visibleSessions.count) total")
-                        .font(DS.Typography.caption)
+    private var compactBody: some View {
+        VStack(spacing: 0) {
+            compactTopBar
+            Divider().overlay(DS.Palette.separator)
+
+            if let selectedSession {
+                if !runtime.sessionHasAPIKey(selectedSession.id) {
+                    MissingAPIKeyBanner(
+                        modelName: runtime.resolvedModelName(for: selectedSession.id),
+                        language: language
+                    )
+                }
+                transcriptScroll(for: selectedSession)
+                inputBar(for: selectedSession)
+            } else {
+                Spacer(minLength: 0)
+                emptyChatHero
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private var compactTopBar: some View {
+        HStack(spacing: DS.Space.sm) {
+            Button {
+                isShowingSessionList = true
+            } label: {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(DS.Palette.textPrimary)
+                    .frame(width: 36, height: 36)
+                    .background(
+                        Circle().fill(DS.Palette.surfaceElevated)
+                    )
+                    .overlay(
+                        Circle().stroke(DS.Palette.border, lineWidth: 0.5)
+                    )
+            }
+            .buttonStyle(.plain)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(selectedSession?.title ?? language[.chatTitle])
+                    .font(DS.Typography.headline)
+                    .foregroundStyle(DS.Palette.textPrimary)
+                    .lineLimit(1)
+                if let session = selectedSession,
+                   let modelName = currentModelName(for: session) {
+                    Text(modelName)
+                        .font(DS.Typography.captionSmall.monospacedDigit())
                         .foregroundStyle(DS.Palette.textTertiary)
                 }
-                Spacer()
-                Button {
-                    let session = runtime.createSession()
-                    selectedSessionId = session.id
-                    inputFocused = true
-                } label: {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(DS.Palette.textPrimary)
-                        .frame(width: 32, height: 32)
-                        .background(
-                            Circle().fill(DS.Palette.accentSoft)
-                        )
-                }
-                .buttonStyle(.plain)
             }
-            .padding(.horizontal, DS.Space.lg)
-            .padding(.top, DS.Space.lg)
-            .padding(.bottom, DS.Space.sm)
+
+            Spacer()
+
+            // New conversation
+            Button {
+                let session = runtime.createSession(title: language[.chatNewConversation])
+                selectedSessionId = session.id
+                inputFocused = true
+            } label: {
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(DS.Palette.textPrimary)
+                    .frame(width: 36, height: 36)
+                    .background(
+                        Circle().fill(DS.Palette.accentSoft)
+                    )
+            }
+            .buttonStyle(.plain)
+
+            if selectedSession != nil {
+                sessionMenu(for: selectedSession!)
+            }
+        }
+        .padding(.horizontal, DS.Space.md)
+        .padding(.vertical, DS.Space.sm)
+        .background(DS.Palette.surface)
+    }
+
+    private var emptyChatHero: some View {
+        DSEmptyState(
+            icon: "sparkles",
+            title: language[.sparklesQuietTitle],
+            message: language[.sparklesQuietSubtitle],
+            action: (language[.sparklesCTA], {
+                let session = runtime.createSession(title: language[.chatNewConversation])
+                selectedSessionId = session.id
+                inputFocused = true
+            })
+        )
+    }
+
+    // MARK: - Regular (iPad / Mac) layout
+
+    private var regularBody: some View {
+        HStack(spacing: 0) {
+            sessionListPane(forSheet: false)
+                .frame(minWidth: 260, idealWidth: 280, maxWidth: 320)
+
+            Divider().overlay(DS.Palette.separator)
+
+            transcriptPane
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .toolbar(.hidden, for: .navigationBar)
+    }
+
+    // MARK: - Session list pane
+
+    private func sessionListPane(forSheet: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if !forSheet {
+                // Top header with new chat button (only on regular layout; sheet has its own nav bar)
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(language[.chatHistory])
+                            .font(DS.Typography.title)
+                            .foregroundStyle(DS.Palette.textPrimary)
+                        Text(String(format: language[.chatTotalCount], visibleSessions.count))
+                            .font(DS.Typography.caption)
+                            .foregroundStyle(DS.Palette.textTertiary)
+                    }
+                    Spacer()
+                    Button {
+                        let session = runtime.createSession(title: language[.chatNewConversation])
+                        selectedSessionId = session.id
+                        inputFocused = true
+                    } label: {
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(DS.Palette.textPrimary)
+                            .frame(width: 32, height: 32)
+                            .background(
+                                Circle().fill(DS.Palette.accentSoft)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, DS.Space.lg)
+                .padding(.top, DS.Space.lg)
+                .padding(.bottom, DS.Space.sm)
+            }
 
             // Search
             HStack(spacing: DS.Space.xs) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(DS.Palette.textTertiary)
-                TextField("Search", text: $searchQuery)
+                TextField(language[.chatSearchPlaceholder], text: $searchQuery)
                     .textFieldStyle(.plain)
                     .font(DS.Typography.callout)
             }
@@ -165,13 +296,45 @@ struct ChatHomeView: View {
                     .stroke(DS.Palette.border, lineWidth: 0.5)
             )
             .padding(.horizontal, DS.Space.lg)
+            .padding(.top, forSheet ? DS.Space.sm : 0)
             .padding(.bottom, DS.Space.sm)
+
+            // New conversation (sheet only — header on regular layout already has this)
+            if forSheet {
+                Button {
+                    let session = runtime.createSession(title: language[.chatNewConversation])
+                    selectedSessionId = session.id
+                    isShowingSessionList = false
+                    inputFocused = true
+                } label: {
+                    HStack(spacing: DS.Space.sm) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 16))
+                            .foregroundStyle(DS.Palette.accent)
+                        Text(language[.chatNewConversation])
+                            .font(DS.Typography.callout.weight(.semibold))
+                            .foregroundStyle(DS.Palette.accent)
+                        Spacer()
+                    }
+                    .padding(.horizontal, DS.Space.md)
+                    .padding(.vertical, DS.Space.sm + 2)
+                    .background(
+                        RoundedRectangle(cornerRadius: DS.Radius.sm, style: .continuous)
+                            .fill(DS.Palette.accentSoft)
+                    )
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, DS.Space.lg)
+                .padding(.bottom, DS.Space.sm)
+            }
 
             // Session list
             ScrollView {
                 LazyVStack(spacing: 2, pinnedViews: [.sectionHeaders]) {
                     if visibleSessions.isEmpty {
-                        Text(searchQuery.isEmpty ? "No conversations yet." : "No matches.")
+                        Text(searchQuery.isEmpty
+                             ? language[.chatNoConversationsYet]
+                             : language[.chatNoSearchMatches])
                             .font(DS.Typography.caption)
                             .foregroundStyle(DS.Palette.textTertiary)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -179,16 +342,27 @@ struct ChatHomeView: View {
                             .padding(.vertical, DS.Space.md)
                     } else {
                         let groups = SessionDateGrouper().group(visibleSessions)
+                        // Compute previews in a single pass before the ForEach. Each
+                        // `messages(for:)` call is a full SwiftData fetch; doing it
+                        // inline per row was the second-biggest scroll cost after the
+                        // transcript bubbles.
+                        let previews = visibleSessions.reduce(into: [UUID: String]()) {
+                            $0[$1.id] = messagePreview(for: $1)
+                        }
                         ForEach(groups, id: \.bucket) { group in
                             Section {
                                 ForEach(group.sessions) { session in
                                     SessionRow(
                                         session: session,
                                         isSelected: session.id == selectedSessionId,
-                                        preview: messagePreview(for: session),
+                                        preview: previews[session.id] ?? language[.chatStartHint],
+                                        language: language,
                                         onSelect: {
                                             withAnimation(DS.Motion.springSnappy) {
                                                 selectedSessionId = session.id
+                                                if forSheet {
+                                                    isShowingSessionList = false
+                                                }
                                             }
                                         },
                                         onPin: { runtime.togglePin(session.id) },
@@ -199,6 +373,7 @@ struct ChatHomeView: View {
                                             }
                                         }
                                     )
+                                    .equatable()
                                     .padding(.horizontal, DS.Space.xs)
                                 }
                             } header: {
@@ -215,10 +390,10 @@ struct ChatHomeView: View {
 
     private func messagePreview(for session: ChatSessionRecord) -> String {
         let messages = runtime.chatRepository.messages(for: session.id)
-        return messages.last?.content ?? "Start a conversation"
+        return messages.last?.content ?? language[.chatStartHint]
     }
 
-    // MARK: - Transcript pane
+    // MARK: - Transcript pane (regular layout)
 
     private var transcriptPane: some View {
         VStack(spacing: 0) {
@@ -226,21 +401,15 @@ struct ChatHomeView: View {
                 transcriptHeader(for: selectedSession)
                 Divider().overlay(DS.Palette.separator)
                 if !runtime.sessionHasAPIKey(selectedSession.id) {
-                    MissingAPIKeyBanner(modelName: runtime.resolvedModelName(for: selectedSession.id))
+                    MissingAPIKeyBanner(
+                        modelName: runtime.resolvedModelName(for: selectedSession.id),
+                        language: language
+                    )
                 }
                 transcriptScroll(for: selectedSession)
                 inputBar(for: selectedSession)
             } else {
-                DSEmptyState(
-                    icon: "sparkles",
-                    title: "A quiet place to think",
-                    message: "Conversations are stored locally on your device. Third-party APIs only see redacted text — your raw notes stay here.",
-                    action: ("Start a new conversation", {
-                        let session = runtime.createSession()
-                        selectedSessionId = session.id
-                        inputFocused = true
-                    })
-                )
+                emptyChatHero
             }
         }
     }
@@ -267,7 +436,7 @@ struct ChatHomeView: View {
                     if usage.promptTokens + usage.completionTokens > 0 {
                         Text("·")
                             .foregroundStyle(DS.Palette.textTertiary)
-                        Text("\(usage.promptTokens + usage.completionTokens) tokens")
+                        Text("\(usage.promptTokens + usage.completionTokens) \(language[.transcriptTokensSuffix])")
                             .font(DS.Typography.captionSmall.monospacedDigit())
                             .foregroundStyle(DS.Palette.textTertiary)
                     }
@@ -276,81 +445,96 @@ struct ChatHomeView: View {
 
             Spacer()
 
-            Menu {
-                Section("Switch model") {
-                    ForEach(runtime.modelConfigs.filter(\.isEnabled)) { model in
-                        Button {
-                            runtime.bindModelToSession(session.id, modelId: model.id)
-                        } label: {
-                            Label(model.name, systemImage: model.id == session.modelConfigId ? "checkmark" : "")
-                        }
-                    }
-                }
-
-                Section {
-                    Button {
-                        systemPromptDraft = SystemPromptDraft(
-                            sessionId: session.id,
-                            content: session.systemPrompt ?? ""
-                        )
-                    } label: {
-                        Label(
-                            session.systemPrompt == nil ? "Set system prompt" : "Edit system prompt",
-                            systemImage: "text.bubble"
-                        )
-                    }
-
-                    Button {
-                        Task { await regenerate(in: session) }
-                    } label: {
-                        Label("Regenerate last reply", systemImage: "arrow.clockwise")
-                    }
-                    .disabled(isSending || runtime.chatRepository.messages(for: session.id).isEmpty)
-
-                    Button {
-                        if let md = runtime.exportConversation(for: session.id, format: .markdown) {
-                            exportPayload = ConversationExportPayload(format: .markdown, content: md, sessionTitle: session.title)
-                        }
-                    } label: {
-                        Label("Export as Markdown", systemImage: "doc.richtext")
-                    }
-                    Button {
-                        if let json = runtime.exportConversation(for: session.id, format: .json) {
-                            exportPayload = ConversationExportPayload(format: .json, content: json, sessionTitle: session.title)
-                        }
-                    } label: {
-                        Label("Export as JSON", systemImage: "curlybraces.square")
-                    }
-                }
-
-                Section {
-                    Button {
-                        runtime.togglePin(session.id)
-                    } label: {
-                        Label(session.isPinned ? "Unpin" : "Pin", systemImage: session.isPinned ? "pin.slash" : "pin")
-                    }
-                    Button {
-                        runtime.archiveSession(session.id)
-                        selectedSessionId = nil
-                    } label: {
-                        Label("Archive", systemImage: "archivebox")
-                    }
-                    Button(role: .destructive) {
-                        runtime.deleteSession(session.id)
-                        selectedSessionId = nil
-                    } label: {
-                        Label("Delete", systemImage: "trash")
-                    }
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(DS.Palette.textSecondary)
-            }
+            sessionMenu(for: session)
         }
         .padding(.horizontal, DS.Space.xl)
         .padding(.vertical, DS.Space.lg)
         .background(DS.Palette.surface)
+    }
+
+    /// Per-session "···" menu, shared by both compact and regular layouts.
+    @ViewBuilder
+    private func sessionMenu(for session: ChatSessionRecord) -> some View {
+        Menu {
+            Section(language[.actionSwitchModel]) {
+                ForEach(runtime.modelConfigs.filter(\.isEnabled)) { model in
+                    Button {
+                        runtime.bindModelToSession(session.id, modelId: model.id)
+                    } label: {
+                        Label(
+                            "\(model.name) · \(model.modelName)",
+                            systemImage: model.id == session.modelConfigId ? "checkmark" : ""
+                        )
+                    }
+                }
+            }
+
+            Section {
+                Button {
+                    systemPromptDraft = SystemPromptDraft(
+                        sessionId: session.id,
+                        content: session.systemPrompt ?? ""
+                    )
+                } label: {
+                    Label(
+                        session.systemPrompt == nil
+                            ? language[.actionSetSystemPrompt]
+                            : language[.actionEditSystemPrompt],
+                        systemImage: "text.bubble"
+                    )
+                }
+
+                Button {
+                    Task { await regenerate(in: session) }
+                } label: {
+                    Label(language[.actionRegenerate], systemImage: "arrow.clockwise")
+                }
+                .disabled(isSending || runtime.chatRepository.messages(for: session.id).isEmpty)
+
+                Button {
+                    if let md = runtime.exportConversation(for: session.id, format: .markdown) {
+                        exportPayload = ConversationExportPayload(format: .markdown, content: md, sessionTitle: session.title)
+                    }
+                } label: {
+                    Label(language[.actionExportMarkdown], systemImage: "doc.richtext")
+                }
+                Button {
+                    if let json = runtime.exportConversation(for: session.id, format: .json) {
+                        exportPayload = ConversationExportPayload(format: .json, content: json, sessionTitle: session.title)
+                    }
+                } label: {
+                    Label(language[.actionExportJSON], systemImage: "curlybraces.square")
+                }
+            }
+
+            Section {
+                Button {
+                    runtime.togglePin(session.id)
+                } label: {
+                    Label(
+                        session.isPinned ? language[.actionUnpin] : language[.actionPin],
+                        systemImage: session.isPinned ? "pin.slash" : "pin"
+                    )
+                }
+                Button {
+                    runtime.archiveSession(session.id)
+                    selectedSessionId = nil
+                } label: {
+                    Label(language[.actionArchive], systemImage: "archivebox")
+                }
+                Button(role: .destructive) {
+                    runtime.deleteSession(session.id)
+                    selectedSessionId = nil
+                } label: {
+                    Label(language[.actionDelete], systemImage: "trash")
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.system(size: 18, weight: .regular))
+                .foregroundStyle(DS.Palette.textSecondary)
+                .frame(width: 36, height: 36)
+        }
     }
 
     private func currentModelName(for session: ChatSessionRecord) -> String? {
@@ -360,16 +544,21 @@ struct ChatHomeView: View {
 
     private func transcriptScroll(for session: ChatSessionRecord) -> some View {
         ScrollViewReader { proxy in
+            // Pull the message list once per body invocation. The repository call is a full
+            // SwiftData fetch — calling it inside ForEach + multiple onChange closures (as
+            // before) re-ran it 3-4× per scroll tick and was the dominant frame-drop source.
+            let messages = runtime.chatRepository.messages(for: session.id)
+            let messageCount = messages.count
             ScrollView {
-                let messages = runtime.chatRepository.messages(for: session.id)
                 LazyVStack(alignment: .leading, spacing: DS.Space.lg) {
                     if messages.isEmpty && !streamingIsActive {
-                        FirstMessageHint()
+                        FirstMessageHint(language: language)
                             .padding(.top, DS.Space.xxl)
                     } else {
                         ForEach(messages) { message in
                             MessageBubble(
                                 message: message,
+                                language: language,
                                 onDelete: {
                                     runtime.deleteMessage(message.id, in: session.id)
                                 },
@@ -389,6 +578,7 @@ struct ChatHomeView: View {
                                     runtime.toggleBookmark(message.id, in: session.id)
                                 }
                             )
+                                .equatable()
                                 .id(message.id)
                         }
 
@@ -396,13 +586,14 @@ struct ChatHomeView: View {
                             StreamingBubble(
                                 text: streamingText,
                                 modelName: runtime.resolvedModelName(for: session.id)
-                                    ?? runtime.modelManager.defaultModel()?.name
+                                    ?? runtime.modelManager.defaultModel()?.name,
+                                language: language
                             )
                                 .id("__streaming__")
                         }
                     }
                 }
-                .padding(.horizontal, DS.Space.xl)
+                .padding(.horizontal, isCompact ? DS.Space.md : DS.Space.xl)
                 .padding(.vertical, DS.Space.lg)
             }
             .background(DS.Palette.surface)
@@ -411,10 +602,10 @@ struct ChatHomeView: View {
                     proxy.scrollTo("__streaming__", anchor: .bottom)
                 }
             }
-            .onChange(of: runtime.chatRepository.messages(for: session.id).count) { _, _ in
-                if let last = runtime.chatRepository.messages(for: session.id).last {
+            .onChange(of: messageCount) { _, _ in
+                if let lastId = messages.last?.id {
                     withAnimation(DS.Motion.springSnappy) {
-                        proxy.scrollTo(last.id, anchor: .bottom)
+                        proxy.scrollTo(lastId, anchor: .bottom)
                     }
                 }
             }
@@ -441,7 +632,7 @@ struct ChatHomeView: View {
 
             HStack(alignment: .bottom, spacing: DS.Space.sm) {
                 HStack(alignment: .bottom, spacing: DS.Space.xs) {
-                    TextField("Message AI Hub… (type / for commands)", text: $draft, axis: .vertical)
+                    TextField(language[.chatInputPlaceholder], text: $draft, axis: .vertical)
                         .textFieldStyle(.plain)
                         .font(DS.Typography.body)
                         .lineLimit(1...6)
@@ -491,7 +682,7 @@ struct ChatHomeView: View {
                     .frame(width: 40, height: 40)
                     .background(
                         Circle()
-                            .fill(isSending ? DS.Palette.danger : (canSend ? DS.Palette.textPrimary : DS.Palette.textTertiary))
+                            .fill(isSending ? DS.Palette.danger : (canSend ? DS.Palette.accent : DS.Palette.textTertiary))
                     )
                 }
                 .buttonStyle(.plain)
@@ -516,23 +707,27 @@ struct ChatHomeView: View {
 
                     if let modelRecord = resolvedModel(for: session),
                        estimate >= modelRecord.maxTokens {
-                        Text("Exceeds \(modelRecord.maxTokens) limit")
+                        Text(language == .zh
+                             ? "超出 \(modelRecord.maxTokens) 上限"
+                             : "Exceeds \(modelRecord.maxTokens) limit")
                             .font(DS.Typography.captionSmall.weight(.semibold))
                             .foregroundStyle(DS.Palette.danger)
                     } else if let modelRecord = resolvedModel(for: session),
                               Double(estimate) >= Double(modelRecord.maxTokens) * 0.75 {
-                        Text("\(Int(Double(estimate) / Double(modelRecord.maxTokens) * 100))% of budget")
+                        Text(language == .zh
+                             ? "已用 \(Int(Double(estimate) / Double(modelRecord.maxTokens) * 100))%"
+                             : "\(Int(Double(estimate) / Double(modelRecord.maxTokens) * 100))% of budget")
                             .font(DS.Typography.captionSmall)
                             .foregroundStyle(DS.Palette.warning)
                     } else {
-                        Text("within model budget")
+                        Text(language == .zh ? "在预算内" : "within model budget")
                             .font(DS.Typography.captionSmall)
                             .foregroundStyle(DS.Palette.textTertiary)
                     }
 
                     Spacer()
                 }
-                .padding(.horizontal, DS.Space.xl)
+                .padding(.horizontal, isCompact ? DS.Space.md : DS.Space.xl)
                 .padding(.bottom, DS.Space.xs)
                 .transition(.opacity)
             }
@@ -573,8 +768,7 @@ struct ChatHomeView: View {
         }
     }
 
-    /// Resolve a slash command. Most commands route to the UI (open a sheet, clear messages,
-    /// etc.); `.code` rewrites the draft and re-runs as a normal message.
+    /// Resolve a slash command.
     private func handle(command: SlashCommand, args: String, in session: ChatSessionRecord) async {
         switch command {
         case .system:
@@ -602,7 +796,6 @@ struct ChatHomeView: View {
             draft = ""
 
         case .code:
-            // `args` looks like "swift func foo() { ... }". Take the first word as language.
             let parts = args.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
             let language: String
             let body: String
@@ -615,13 +808,12 @@ struct ChatHomeView: View {
             }
             let fence = "```\(language)\n\(body)\n```"
             draft = fence
-            // Don't auto-send; let the user review.
 
         case .branch:
             guard let lastAssistant = runtime.chatRepository.messages(for: session.id)
                 .reversed()
                 .first(where: { $0.role == .assistant }) else {
-                errorMessage = "Nothing to branch from yet."
+                errorMessage = self.language == .zh ? "还没有可分支的内容。" : "Nothing to branch from yet."
                 return
             }
             if let branched = runtime.branchSession(from: session.id, atMessage: lastAssistant.id) {
@@ -662,9 +854,6 @@ struct ChatHomeView: View {
         }
     }
 
-    /// Apply an in-place edit to a user message. We update the content, drop everything that
-    /// came after (those were responses to the old prompt and are now stale), and re-trigger
-    /// generation so the assistant answers the corrected question.
     private func handleMessageEdit(target: MessageEditTarget, newContent: String) {
         let trimmed = newContent.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
@@ -674,7 +863,6 @@ struct ChatHomeView: View {
         runtime.updateMessageContent(target.messageId, in: target.sessionId, newContent: trimmed)
         runtime.deleteMessagesAfter(target.messageId, in: target.sessionId)
 
-        // Re-run generation with the edited message as the last user turn.
         guard let session = runtime.sessions.first(where: { $0.id == target.sessionId }) else {
             return
         }
@@ -701,7 +889,6 @@ struct ChatHomeView: View {
                 streamingBuffer: buffer
             )
         } onError: { error in
-            // Don't refill draft for regenerate — there's no draft text to restore.
             errorMessage = ErrorMessageMapper.message(for: error).detail
         }
     }
@@ -722,15 +909,17 @@ struct ChatHomeView: View {
 
         let buffer = StreamingResponseBuffer()
         let observerStream = await buffer.observe()
-        let observerTask = Task {
+        let observerTask = Task { @MainActor in
             for await snapshot in observerStream {
-                await MainActor.run {
-                    streamingText = snapshot.text
-                }
+                streamingText = snapshot.text
             }
         }
 
-        let generationTask = Task<Void, Never> {
+        // The orchestrator calls into `runtime.chatRepository` (a SwiftData-backed @MainActor
+        // type) from inside the streaming for-await loop. SwiftData's main `ModelContext` is
+        // not thread-safe, so the whole task must stay pinned to MainActor — otherwise the
+        // first `repository.appendMessage` after a network event crashes the app.
+        let generationTask = Task<Void, Never> { @MainActor in
             do {
                 let resolvedModel = try resolveModel(for: session)
                 let aiService = try runtime.modelManager.makeService(for: resolvedModel)
@@ -743,12 +932,11 @@ struct ChatHomeView: View {
                     privacyPreferences: runtime.privacyPreferences
                 )
                 _ = try await run(orchestrator, resolvedModel, buffer)
-                await MainActor.run { runtime.refreshSessions() }
+                runtime.refreshSessions()
             } catch is CancellationError {
-                // Generation was cancelled — partial message already persisted by the orchestrator.
-                await MainActor.run { runtime.refreshSessions() }
+                runtime.refreshSessions()
             } catch {
-                await MainActor.run { onError(error) }
+                onError(error)
             }
         }
 
@@ -766,8 +954,6 @@ struct ChatHomeView: View {
         return try runtime.modelManager.resolveDefaultModel()
     }
 
-    /// Return the model record that *would* be used for this session, without resolving secrets
-    /// — used for cheap UI hints like the token budget bar.
     private func resolvedModel(for session: ChatSessionRecord) -> ModelConfigRecord? {
         if let id = session.modelConfigId,
            let record = runtime.modelConfigs.first(where: { $0.id == id && $0.isEnabled }) {
@@ -780,13 +966,24 @@ struct ChatHomeView: View {
 
 // MARK: - Session row
 
-private struct SessionRow: View {
+private struct SessionRow: View, Equatable {
     let session: ChatSessionRecord
     let isSelected: Bool
     let preview: String
+    let language: AppLanguage
     let onSelect: () -> Void
     let onPin: () -> Void
     let onDelete: () -> Void
+
+    nonisolated static func == (lhs: SessionRow, rhs: SessionRow) -> Bool {
+        lhs.session.id == rhs.session.id
+            && lhs.session.title == rhs.session.title
+            && lhs.session.isPinned == rhs.session.isPinned
+            && lhs.session.updatedAt == rhs.session.updatedAt
+            && lhs.isSelected == rhs.isSelected
+            && lhs.preview == rhs.preview
+            && lhs.language == rhs.language
+    }
 
     var body: some View {
         Button(action: onSelect) {
@@ -833,10 +1030,13 @@ private struct SessionRow: View {
             Button {
                 onPin()
             } label: {
-                Label(session.isPinned ? "Unpin" : "Pin", systemImage: session.isPinned ? "pin.slash" : "pin")
+                Label(
+                    session.isPinned ? language[.actionUnpin] : language[.actionPin],
+                    systemImage: session.isPinned ? "pin.slash" : "pin"
+                )
             }
             Button(role: .destructive, action: onDelete) {
-                Label("Delete", systemImage: "trash")
+                Label(language[.actionDelete], systemImage: "trash")
             }
         }
     }
@@ -844,12 +1044,24 @@ private struct SessionRow: View {
 
 // MARK: - Message bubbles
 
-private struct MessageBubble: View {
+/// Equatable so SwiftUI can skip re-evaluating bubbles whose underlying message hasn't
+/// changed. The bubble owns no internal state worth tracking — equality on message id
+/// + content + bookmark covers every visible difference. Without this, every scroll tick
+/// or streaming token causes the whole transcript's bubbles to re-evaluate their body.
+private struct MessageBubble: View, Equatable {
     let message: ChatMessageDTO
+    let language: AppLanguage
     var onDelete: (() -> Void)? = nil
     var onBranch: (() -> Void)? = nil
     var onEdit: (() -> Void)? = nil
     var onToggleBookmark: (() -> Void)? = nil
+
+    nonisolated static func == (lhs: MessageBubble, rhs: MessageBubble) -> Bool {
+        lhs.message.id == rhs.message.id
+            && lhs.message.content == rhs.message.content
+            && lhs.message.isBookmarked == rhs.message.isBookmarked
+            && lhs.language == rhs.language
+    }
 
     var body: some View {
         Group {
@@ -857,9 +1069,9 @@ private struct MessageBubble: View {
             case .user:
                 UserBubble(message: message)
             case .assistant:
-                AssistantBubble(text: message.content, timestamp: message.timestamp)
+                AssistantBubble(text: message.content, timestamp: message.timestamp, language: language)
             case .tool:
-                ToolBubble(content: message.content)
+                ToolBubble(content: message.content, language: language)
             case .system:
                 SystemBubble(content: message.content)
             }
@@ -885,29 +1097,29 @@ private struct MessageBubble: View {
                 NSPasteboard.general.setString(message.content, forType: .string)
                 #endif
             } label: {
-                Label("Copy", systemImage: "doc.on.doc")
+                Label(language[.actionCopy], systemImage: "doc.on.doc")
             }
             if let onToggleBookmark {
                 Button(action: onToggleBookmark) {
                     Label(
-                        message.isBookmarked ? "Remove bookmark" : "Bookmark",
+                        message.isBookmarked ? language[.actionRemoveBookmark] : language[.actionBookmark],
                         systemImage: message.isBookmarked ? "bookmark.slash" : "bookmark"
                     )
                 }
             }
             if message.role == .user, let onEdit {
                 Button(action: onEdit) {
-                    Label("Edit message", systemImage: "pencil")
+                    Label(language[.actionEditMessage], systemImage: "pencil")
                 }
             }
             if let onBranch {
                 Button(action: onBranch) {
-                    Label("Branch from here", systemImage: "arrow.triangle.branch")
+                    Label(language[.actionBranchHere], systemImage: "arrow.triangle.branch")
                 }
             }
             if let onDelete {
                 Button(role: .destructive, action: onDelete) {
-                    Label("Delete message", systemImage: "trash")
+                    Label(language[.actionDeleteMessage], systemImage: "trash")
                 }
             }
         }
@@ -919,7 +1131,7 @@ private struct UserBubble: View {
 
     var body: some View {
         HStack {
-            Spacer(minLength: 64)
+            Spacer(minLength: 48)
             VStack(alignment: .trailing, spacing: 4) {
                 Text(message.content)
                     .font(DS.Typography.body)
@@ -943,9 +1155,18 @@ private struct UserBubble: View {
 private struct AssistantBubble: View {
     let text: String
     let timestamp: Date
+    let language: AppLanguage
+    // Pre-parse markdown segments once at init. Calling `MessageSegmentParser.parse(text)`
+    // from a computed property re-runs on every body recompute — and SwiftUI invalidates
+    // `body` whenever an ancestor's state changes (sidebar toggle, streamingText tick).
+    // For long assistant replies this was the biggest scroll-frame cost.
+    private let segments: [MessageSegment]
 
-    private var segments: [MessageSegment] {
-        MessageSegmentParser.parse(text)
+    init(text: String, timestamp: Date, language: AppLanguage) {
+        self.text = text
+        self.timestamp = timestamp
+        self.language = language
+        self.segments = MessageSegmentParser.parse(text)
     }
 
     var body: some View {
@@ -954,7 +1175,7 @@ private struct AssistantBubble: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: DS.Space.xs) {
-                    Text("Assistant")
+                    Text(language[.transcriptAssistantRole])
                         .font(DS.Typography.subheadline)
                         .foregroundStyle(DS.Palette.textSecondary)
                     Text("·")
@@ -985,7 +1206,7 @@ private struct AssistantBubble: View {
                         .stroke(DS.Palette.border, lineWidth: 0.5)
                 )
             }
-            Spacer(minLength: 64)
+            Spacer(minLength: 32)
         }
     }
 }
@@ -993,6 +1214,7 @@ private struct AssistantBubble: View {
 private struct StreamingBubble: View {
     let text: String
     var modelName: String? = nil
+    let language: AppLanguage
     @State private var phase: Double = 0
 
     var body: some View {
@@ -1001,7 +1223,7 @@ private struct StreamingBubble: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: DS.Space.xs) {
-                    Text("Assistant")
+                    Text(language[.transcriptAssistantRole])
                         .font(DS.Typography.subheadline)
                         .foregroundStyle(DS.Palette.textSecondary)
                     if let modelName {
@@ -1012,7 +1234,7 @@ private struct StreamingBubble: View {
                             .foregroundStyle(DS.Palette.textTertiary)
                     }
                     DSStatusDot(status: .live, animated: true)
-                    Text("typing")
+                    Text(language[.transcriptTypingLabel])
                         .font(DS.Typography.captionSmall)
                         .foregroundStyle(DS.Palette.textTertiary)
                 }
@@ -1032,13 +1254,14 @@ private struct StreamingBubble: View {
                             .stroke(DS.Palette.accent.opacity(0.35), lineWidth: 1)
                     )
             }
-            Spacer(minLength: 64)
+            Spacer(minLength: 32)
         }
     }
 }
 
 private struct ToolBubble: View {
     let content: String
+    let language: AppLanguage
 
     var body: some View {
         HStack(alignment: .top, spacing: DS.Space.sm) {
@@ -1052,7 +1275,7 @@ private struct ToolBubble: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("Tool result")
+                Text(language[.transcriptToolResult])
                     .font(DS.Typography.subheadline)
                     .foregroundStyle(DS.Palette.warning)
                 Text(content)
@@ -1065,7 +1288,7 @@ private struct ToolBubble: View {
                     )
                     .textSelection(.enabled)
             }
-            Spacer(minLength: 64)
+            Spacer(minLength: 32)
         }
     }
 }
@@ -1105,6 +1328,8 @@ private struct AssistantGlyph: View {
 // MARK: - First-message hint
 
 private struct FirstMessageHint: View {
+    let language: AppLanguage
+
     var body: some View {
         VStack(spacing: DS.Space.md) {
             ZStack {
@@ -1115,10 +1340,10 @@ private struct FirstMessageHint: View {
                     .font(.system(size: 22, weight: .light))
                     .foregroundStyle(DS.Palette.accent)
             }
-            Text("Ask me anything")
+            Text(language[.transcriptFirstHintTitle])
                 .font(DS.Typography.title)
                 .foregroundStyle(DS.Palette.textPrimary)
-            Text("Your message will be redacted for privacy before being sent to the model. Tool calls always ask for approval.")
+            Text(language[.transcriptFirstHintSubtitle])
                 .font(DS.Typography.callout)
                 .foregroundStyle(DS.Palette.textSecondary)
                 .multilineTextAlignment(.center)
@@ -1140,6 +1365,7 @@ struct ConversationExportPayload: Identifiable {
 
 private struct ConversationExportView: View {
     let payload: ConversationExportPayload
+    let language: AppLanguage
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -1155,7 +1381,7 @@ private struct ConversationExportView: View {
             .navigationTitle("\(payload.format.displayName) export")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
+                    Button(language[.actionDone]) { dismiss() }
                 }
                 ToolbarItem(placement: .primaryAction) {
                     ShareLink(
@@ -1164,7 +1390,7 @@ private struct ConversationExportView: View {
                             "\(payload.sessionTitle).\(payload.format.fileExtension)"
                         )
                     ) {
-                        Label("Share", systemImage: "square.and.arrow.up")
+                        Label(language[.actionShare], systemImage: "square.and.arrow.up")
                     }
                 }
             }
@@ -1176,12 +1402,14 @@ private struct ConversationExportView: View {
 
 private struct MessageEditView: View {
     let target: ChatHomeView.MessageEditTarget
+    let language: AppLanguage
     let onSave: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var content: String
 
-    init(target: ChatHomeView.MessageEditTarget, onSave: @escaping (String) -> Void) {
+    init(target: ChatHomeView.MessageEditTarget, language: AppLanguage, onSave: @escaping (String) -> Void) {
         self.target = target
+        self.language = language
         self.onSave = onSave
         _content = State(initialValue: target.originalContent)
     }
@@ -1189,7 +1417,9 @@ private struct MessageEditView: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: DS.Space.sm) {
-                Text("Editing will discard the assistant reply and re-run the prompt.")
+                Text(language == .zh
+                     ? "编辑后会丢弃之前的助手回复，并重新生成。"
+                     : "Editing will discard the assistant reply and re-run the prompt.")
                     .font(DS.Typography.caption)
                     .foregroundStyle(DS.Palette.textSecondary)
 
@@ -1209,13 +1439,13 @@ private struct MessageEditView: View {
             }
             .padding(DS.Space.md)
             .background(DS.Palette.surface)
-            .navigationTitle("Edit message")
+            .navigationTitle(language[.actionEditMessage])
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button(language[.actionCancel]) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save & regenerate") {
+                    Button(language == .zh ? "保存并重新生成" : "Save & regenerate") {
                         onSave(content)
                         dismiss()
                     }
@@ -1230,12 +1460,14 @@ private struct MessageEditView: View {
 
 private struct SystemPromptEditorView: View {
     let initial: String
+    let language: AppLanguage
     let onSave: (String?) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var content: String
 
-    init(initial: String, onSave: @escaping (String?) -> Void) {
+    init(initial: String, language: AppLanguage, onSave: @escaping (String?) -> Void) {
         self.initial = initial
+        self.language = language
         self.onSave = onSave
         _content = State(initialValue: initial)
     }
@@ -1244,7 +1476,7 @@ private struct SystemPromptEditorView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.lg) {
-                    Text("System prompt steers the assistant's behaviour for this conversation. Leave it blank to use the model's defaults.")
+                    Text(language[.kSystemPromptHint])
                         .font(DS.Typography.caption)
                         .foregroundStyle(DS.Palette.textSecondary)
                         .padding(.horizontal, DS.Space.md)
@@ -1265,7 +1497,7 @@ private struct SystemPromptEditorView: View {
                         .frame(minHeight: 220)
                         .padding(.horizontal, DS.Space.md)
 
-                    Text("Presets".uppercased())
+                    Text(language[.kPresetsTitle].uppercased())
                         .font(DS.Typography.captionSmall)
                         .tracking(1.6)
                         .foregroundStyle(DS.Palette.textTertiary)
@@ -1305,19 +1537,19 @@ private struct SystemPromptEditorView: View {
                 }
             }
             .background(DS.Palette.surface)
-            .navigationTitle("System prompt")
+            .navigationTitle(language[.actionSetSystemPrompt])
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button(language[.actionCancel]) { dismiss() }
                 }
                 ToolbarItem(placement: .destructiveAction) {
-                    Button("Clear", role: .destructive) {
+                    Button(language[.actionClear], role: .destructive) {
                         onSave(nil)
                         dismiss()
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+                    Button(language[.actionSave]) {
                         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
                         onSave(trimmed.isEmpty ? nil : trimmed)
                         dismiss()
@@ -1332,44 +1564,57 @@ private struct SystemPromptEditorView: View {
 
 private struct MissingAPIKeyBanner: View {
     let modelName: String?
+    let language: AppLanguage
 
     var body: some View {
-        HStack(alignment: .center, spacing: DS.Space.sm) {
-            Image(systemName: "key.slash")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(DS.Palette.warning)
-                .padding(.top, 2)
+        Button {
+            NotificationCenter.default.post(name: .openModelsTab, object: nil)
+        } label: {
+            HStack(alignment: .center, spacing: DS.Space.sm) {
+                Image(systemName: "key.slash")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(DS.Palette.warning)
+                    .padding(.top, 2)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("API key missing")
-                    .font(DS.Typography.subheadline)
-                    .foregroundStyle(DS.Palette.textPrimary)
-                Text(message)
-                    .font(DS.Typography.caption)
-                    .foregroundStyle(DS.Palette.textSecondary)
-                    .lineLimit(2)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(language[.bannerAPIKeyMissingTitle])
+                        .font(DS.Typography.subheadline)
+                        .foregroundStyle(DS.Palette.textPrimary)
+                    Text(messageText)
+                        .font(DS.Typography.caption)
+                        .foregroundStyle(DS.Palette.textSecondary)
+                        .lineLimit(3)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer()
+                Text(language[.bannerAPIKeyMissingCTA])
+                    .font(DS.Typography.captionSmall.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, DS.Space.sm)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule().fill(DS.Palette.warning)
+                    )
             }
-            Spacer()
-            Text("Open Models")
-                .font(DS.Typography.captionSmall.weight(.semibold))
-                .foregroundStyle(DS.Palette.warning)
+            .padding(.horizontal, DS.Space.lg)
+            .padding(.vertical, DS.Space.sm + 2)
+            .background(DS.Palette.warning.opacity(0.12))
+            .overlay(
+                Rectangle()
+                    .fill(DS.Palette.warning.opacity(0.35))
+                    .frame(height: 0.5),
+                alignment: .bottom
+            )
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, DS.Space.xl)
-        .padding(.vertical, DS.Space.sm + 2)
-        .background(DS.Palette.warning.opacity(0.08))
-        .overlay(
-            Rectangle()
-                .fill(DS.Palette.warning.opacity(0.35))
-                .frame(height: 0.5),
-            alignment: .bottom
-        )
+        .buttonStyle(.plain)
     }
 
-    private var message: String {
+    private var messageText: String {
         if let modelName {
-            "Add your provider key to use \(modelName) — or pick a different model from the menu."
+            return String(format: language[.bannerAPIKeyMissingBodyForModel], modelName)
         } else {
-            "Set up a model from the Models tab before sending messages."
+            return language[.bannerAPIKeyMissingBodyGeneric]
         }
     }
 }

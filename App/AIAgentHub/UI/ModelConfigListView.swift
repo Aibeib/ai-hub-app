@@ -1,10 +1,26 @@
 import SwiftUI
 import AIAgentHubCore
 
+/// Wrapper for sheet presentation. Either `.adding(nil)` for a new draft (defaultProvider lets
+/// us pre-select e.g. DeepSeek when tapping "Add DeepSeek" later) or `.editing(record)` for an
+/// existing one. Using `sheet(item:)` keyed on this enum guarantees the editor state is always
+/// initialised from the right model record — `sheet(isPresented:)` could capture a stale snapshot.
+enum ModelEditorTarget: Identifiable {
+    case adding(ModelProvider?)
+    case editing(ModelConfigRecord)
+
+    var id: String {
+        switch self {
+        case .adding(let provider): return "add-\(provider?.rawValue ?? "any")"
+        case .editing(let record): return "edit-\(record.id.uuidString)"
+        }
+    }
+}
+
 struct ModelConfigListView: View {
     @Environment(AppRuntime.self) private var runtime
-    @State private var isShowingEditor = false
-    @State private var editingConfig: ModelConfigRecord?
+    @Environment(\.appLanguage) private var language
+    @State private var editorTarget: ModelEditorTarget?
     @State private var errorMessage: String?
 
     private var enabledModels: [ModelConfigRecord] {
@@ -20,10 +36,10 @@ struct ModelConfigListView: View {
             VStack(alignment: .leading, spacing: DS.Space.lg) {
                 // Header
                 VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                    Text("Models")
+                    Text(language[.modelsTitle])
                         .font(DS.Typography.display)
                         .foregroundStyle(DS.Palette.textPrimary)
-                    Text("Choose which AI providers to use, and configure your API keys for each one.")
+                    Text(language[.modelsSubtitle])
                         .font(DS.Typography.body)
                         .foregroundStyle(DS.Palette.textSecondary)
                         .lineSpacing(3)
@@ -32,11 +48,10 @@ struct ModelConfigListView: View {
                 .padding(.top, DS.Space.lg)
 
                 DSSectionHeader(
-                    "Active The Third-Party Providers",
+                    language[.modelsSectionActive],
                     trailing: AnyView(
                         Button {
-                            editingConfig = nil
-                            isShowingEditor = true
+                            editorTarget = .adding(nil)
                         } label: {
                             Image(systemName: "plus")
                                 .font(.system(size: 14, weight: .semibold))
@@ -49,23 +64,23 @@ struct ModelConfigListView: View {
                 if enabledModels.isEmpty {
                     DSEmptyState(
                         icon: "cpu",
-                        title: "No models configured",
-                        message: "Add a provider like OpenAI, DeepSeek, or Claude to get started.",
-                        action: ("Add model", {
-                            editingConfig = nil
-                            isShowingEditor = true
+                        title: language[.modelsEmptyTitle],
+                        message: language[.modelsEmptySubtitle],
+                        action: (language[.modelsEmptyCTA], {
+                            editorTarget = .adding(nil)
                         })
                     )
                     .padding(.horizontal, DS.Space.xl)
                 } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: DS.Space.lg)], spacing: DS.Space.lg) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: DS.Space.lg)], spacing: DS.Space.lg) {
                         ForEach(enabledModels) { config in
                             ModelCard(
                                 config: config,
                                 isDefault: config.isDefault,
+                                hasAPIKey: runtime.modelHasAPIKey(config.id),
+                                language: language,
                                 onEdit: {
-                                    editingConfig = config
-                                    isShowingEditor = true
+                                    editorTarget = .editing(config)
                                 },
                                 onDelete: {
                                     do {
@@ -81,16 +96,17 @@ struct ModelConfigListView: View {
                 }
 
                 if !disabledModels.isEmpty {
-                    DSSectionHeader("Inactive")
+                    DSSectionHeader(language[.modelsSectionInactive])
 
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: DS.Space.lg)], spacing: DS.Space.lg) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: DS.Space.lg)], spacing: DS.Space.lg) {
                         ForEach(disabledModels) { config in
                             ModelCard(
                                 config: config,
                                 isDefault: false,
+                                hasAPIKey: runtime.modelHasAPIKey(config.id),
+                                language: language,
                                 onEdit: {
-                                    editingConfig = config
-                                    isShowingEditor = true
+                                    editorTarget = .editing(config)
                                 },
                                 onDelete: {
                                     do {
@@ -106,7 +122,7 @@ struct ModelConfigListView: View {
                 }
 
                 // On-device section
-                DSSectionHeader("On-Device")
+                DSSectionHeader(language[.modelsSectionOnDevice])
 
                 GroupBox {
                     HStack(spacing: DS.Space.md) {
@@ -123,7 +139,9 @@ struct ModelConfigListView: View {
                             Text("Apple Foundation Models")
                                 .font(DS.Typography.headline)
                                 .foregroundStyle(DS.Palette.textPrimary)
-                            Text(AppleFoundationAvailability.isAvailable ? "Available on this device" : "Requires iOS 26+")
+                            Text(AppleFoundationAvailability.isAvailable
+                                 ? language[.modelsAppleAvailable]
+                                 : language[.modelsAppleRequires])
                                 .font(DS.Typography.caption)
                                 .foregroundStyle(AppleFoundationAvailability.isAvailable ? DS.Palette.positive : DS.Palette.textTertiary)
                         }
@@ -143,7 +161,7 @@ struct ModelConfigListView: View {
                         Image(systemName: "key.horizontal")
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(DS.Palette.accent)
-                        Text("API keys are stored in the system Keychain and are never persisted in plaintext.")
+                        Text(language[.modelsKeychainNotice])
                             .font(DS.Typography.caption)
                             .foregroundStyle(DS.Palette.textSecondary)
                     }
@@ -154,17 +172,17 @@ struct ModelConfigListView: View {
             }
         }
         .background(DS.Palette.surface)
-        .sheet(isPresented: $isShowingEditor) {
-            ModelConfigEditorView(config: editingConfig) { draft in
+        .sheet(item: $editorTarget) { target in
+            ModelConfigEditorView(target: target, language: language) { draft in
                 do {
                     try runtime.saveModel(draft)
-                    isShowingEditor = false
+                    editorTarget = nil
                 } catch {
                     errorMessage = error.localizedDescription
                 }
             }
         }
-        .alert("Model configuration failed", isPresented: Binding(
+        .alert(language == .zh ? "保存失败" : "Model configuration failed", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )) {
@@ -180,6 +198,8 @@ struct ModelConfigListView: View {
 private struct ModelCard: View {
     let config: ModelConfigRecord
     let isDefault: Bool
+    let hasAPIKey: Bool
+    let language: AppLanguage
     let onEdit: () -> Void
     let onDelete: () -> Void
 
@@ -201,10 +221,17 @@ private struct ModelCard: View {
 
                 VStack(alignment: .trailing, spacing: DS.Space.xxs) {
                     if isDefault {
-                        DSBadge(text: "Default", tint: DS.Palette.accent)
+                        DSBadge(text: language[.modelsLabelDefault], tint: DS.Palette.accent)
                     }
                     if !config.isEnabled {
-                        DSBadge(text: "Disabled", tint: DS.Palette.textTertiary)
+                        DSBadge(text: language[.modelsLabelDisabled], tint: DS.Palette.textTertiary)
+                    }
+                    if config.provider != .apple {
+                        if hasAPIKey {
+                            DSBadge(text: language == .zh ? "已配置" : "Configured", tint: DS.Palette.positive)
+                        } else {
+                            DSBadge(text: language == .zh ? "缺密钥" : "Needs key", tint: DS.Palette.warning)
+                        }
                     }
                 }
             }
@@ -214,15 +241,15 @@ private struct ModelCard: View {
                 .foregroundStyle(DS.Palette.textTertiary)
 
             HStack(spacing: DS.Space.lg) {
-                LabeledBadge(label: "Temp", value: String(format: "%.1f", config.temperature))
-                LabeledBadge(label: "Tokens", value: "\(config.maxTokens)")
+                LabeledBadge(label: language[.modelsLabelTemp], value: String(format: "%.1f", config.temperature))
+                LabeledBadge(label: language[.modelsLabelTokens], value: "\(config.maxTokens)")
             }
 
             Divider().overlay(DS.Palette.separator)
 
             HStack(spacing: DS.Space.sm) {
                 Button(action: onEdit) {
-                    Label("Edit", systemImage: "pencil")
+                    Label(language == .zh ? "编辑" : "Edit", systemImage: "pencil")
                         .font(DS.Typography.caption.weight(.medium))
                 }
                 .buttonStyle(.plain)
@@ -230,7 +257,7 @@ private struct ModelCard: View {
                 Spacer()
 
                 Button(role: .destructive, action: onDelete) {
-                    Label("Delete", systemImage: "trash")
+                    Label(language[.actionDelete], systemImage: "trash")
                         .font(DS.Typography.caption.weight(.medium))
                 }
                 .buttonStyle(.plain)
@@ -277,87 +304,211 @@ struct DSCardGroupBoxStyle: GroupBoxStyle {
     }
 }
 
-// MARK: - Editor (reused from original, lightly styled)
+// MARK: - Editor (with model variant picker)
 
 private struct ModelConfigEditorView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var name: String
     @State private var provider: ModelProvider
-    @State private var modelName: String
+    @State private var selectedVariant: String   // canonical model id, or "__custom__"
+    @State private var customModelName: String
     @State private var baseURL: String
     @State private var apiKey: String
+    @State private var revealAPIKey: Bool = false
     @State private var temperature: Double
     @State private var maxTokens: Int
     @State private var isDefault: Bool
     @State private var isEnabled: Bool
 
     private let id: UUID?
+    private let hasExistingKey: Bool
+    private let language: AppLanguage
     private let onSave: (ModelConfigurationDraft) -> Void
 
-    init(config: ModelConfigRecord?, onSave: @escaping (ModelConfigurationDraft) -> Void) {
-        id = config?.id
-        _name = State(initialValue: config?.name ?? "")
-        _provider = State(initialValue: config?.provider ?? .openai)
-        _modelName = State(initialValue: config?.modelName ?? "")
-        _baseURL = State(initialValue: config?.baseURL?.absoluteString ?? "")
-        _apiKey = State(initialValue: "")
-        _temperature = State(initialValue: config?.temperature ?? 0.7)
-        _maxTokens = State(initialValue: config?.maxTokens ?? 2_048)
-        _isDefault = State(initialValue: config?.isDefault ?? false)
-        _isEnabled = State(initialValue: config?.isEnabled ?? true)
+    private static let customSentinel = "__custom__"
+
+    init(target: ModelEditorTarget, language: AppLanguage, onSave: @escaping (ModelConfigurationDraft) -> Void) {
+        self.language = language
         self.onSave = onSave
+
+        let initName: String
+        let initProvider: ModelProvider
+        let initModelName: String
+        let initBaseURL: String
+        let initTemperature: Double
+        let initMaxTokens: Int
+        let initIsDefault: Bool
+        let initIsEnabled: Bool
+
+        switch target {
+        case let .editing(record):
+            self.id = record.id
+            self.hasExistingKey = false
+            initName = record.name
+            initProvider = record.provider
+            initModelName = record.modelName
+            initBaseURL = record.baseURL?.absoluteString ?? ""
+            initTemperature = record.temperature
+            initMaxTokens = record.maxTokens
+            initIsDefault = record.isDefault
+            initIsEnabled = record.isEnabled
+        case let .adding(presetProvider):
+            self.id = nil
+            self.hasExistingKey = false
+            let prov = presetProvider ?? .openai
+            initName = prov.displayName
+            initProvider = prov
+            initModelName = ModelVariantCatalog.defaultVariantId(for: prov)
+            initBaseURL = ""
+            initTemperature = 0.7
+            initMaxTokens = 4_096
+            initIsDefault = false
+            initIsEnabled = true
+        }
+
+        let matchesBuiltIn = ModelVariantCatalog.matchesBuiltIn(provider: initProvider, modelName: initModelName)
+        let initVariant: String
+        let initCustomName: String
+        if matchesBuiltIn {
+            initVariant = initModelName
+            initCustomName = ""
+        } else if initModelName.isEmpty {
+            initVariant = ModelVariantCatalog.defaultVariantId(for: initProvider)
+            initCustomName = ""
+        } else {
+            initVariant = Self.customSentinel
+            initCustomName = initModelName
+        }
+
+        _name = State(initialValue: initName)
+        _provider = State(initialValue: initProvider)
+        _selectedVariant = State(initialValue: initVariant)
+        _customModelName = State(initialValue: initCustomName)
+        _baseURL = State(initialValue: initBaseURL)
+        _apiKey = State(initialValue: "")
+        _temperature = State(initialValue: initTemperature)
+        _maxTokens = State(initialValue: initMaxTokens)
+        _isDefault = State(initialValue: initIsDefault)
+        _isEnabled = State(initialValue: initIsEnabled)
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Provider") {
-                    TextField("Display name", text: $name)
-                    Picker("Provider", selection: $provider) {
-                        ForEach(ModelProvider.allCases.filter { $0 != .apple }, id: \.self) { provider in
-                            Label(provider.displayName, systemImage: providerIcon(for: provider))
-                                .tag(provider)
+                Section(language[.modelsSectionProvider]) {
+                    TextField(language[.modelsFieldDisplayName], text: $name)
+
+                    Picker(language[.modelsFieldProvider], selection: $provider) {
+                        ForEach(ModelProvider.allCases.filter { $0 != .apple }, id: \.self) { p in
+                            Label(p.displayName, systemImage: providerIcon(for: p))
+                                .tag(p)
                         }
                     }
-                    TextField("Model name", text: $modelName)
+                    .onChange(of: provider) { _, newProvider in
+                        // Reset variant selection to the new provider's default.
+                        selectedVariant = ModelVariantCatalog.defaultVariantId(for: newProvider)
+                        customModelName = ""
+                        // Auto-update the display name when the user hasn't given it a custom one.
+                        // We only overwrite when the current name still looks like an earlier provider's
+                        // default — otherwise we respect what the user typed.
+                        let allDefaults = ModelProvider.allCases.map(\.displayName)
+                        if allDefaults.contains(name) || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            name = newProvider.displayName
+                        }
+                    }
+
+                    Picker(language[.modelsFieldModelNamePicker], selection: $selectedVariant) {
+                        ForEach(ModelVariantCatalog.variants(for: provider)) { variant in
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(variant.displayName)
+                                Text(variant.summary)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .tag(variant.id)
+                        }
+                        Text(language[.modelsFieldCustomModel]).tag(Self.customSentinel)
+                    }
+                    .pickerStyle(.menu)
+
+                    if selectedVariant == Self.customSentinel {
+                        TextField(language[.modelsFieldModelName], text: $customModelName)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        Text(volcengineHintIfNeeded() ?? language[.modelsFieldCustomModelHint])
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if provider == .volcengine {
+                        Text(language == .zh
+                             ? "若你在火山方舟控制台创建了「在线推理接入点」(Endpoint ID 形如 ep-xxxxxx)，请选「自定义模型名」并粘贴。"
+                             : "If you created an inference endpoint in the Volcengine Ark console, pick \"Custom\" and paste the endpoint id (looks like ep-xxxxxx).")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    TextField(language[.modelsFieldCustomEndpoint], text: $baseURL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    TextField("Custom endpoint (optional)", text: $baseURL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+
+                    Text(defaultEndpointHint())
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                 }
 
-                Section("Secret") {
-                    SecureField(id == nil ? "API key" : "New API key (leave blank to keep)", text: $apiKey)
-                    Text("Keys are saved through the Keychain-backed secret store.")
+                Section(language[.modelsSectionSecret]) {
+                    HStack {
+                        Group {
+                            if revealAPIKey {
+                                TextField(apiKeyPlaceholder, text: $apiKey)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled()
+                            } else {
+                                SecureField(apiKeyPlaceholder, text: $apiKey)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled()
+                            }
+                        }
+                        Button {
+                            revealAPIKey.toggle()
+                        } label: {
+                            Image(systemName: revealAPIKey ? "eye.slash" : "eye")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Text(language[.modelsFieldKeychainNotice])
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
-                Section("Parameters") {
-                    LabeledContent("Temperature") {
+                Section(language[.modelsSectionParameters]) {
+                    LabeledContent(language[.modelsFieldTemperature]) {
                         Text(temperature, format: .number.precision(.fractionLength(1)))
                     }
                     Slider(value: $temperature, in: 0...2, step: 0.1)
-                    Stepper("Max tokens: \(maxTokens)", value: $maxTokens, in: 1...200_000, step: 256)
-                    Toggle("Default model", isOn: $isDefault)
-                    Toggle("Enabled", isOn: $isEnabled)
+                    Stepper("\(language[.modelsFieldMaxTokens]): \(maxTokens)", value: $maxTokens, in: 1...200_000, step: 256)
+                    Toggle(language[.modelsFieldIsDefault], isOn: $isDefault)
+                    Toggle(language[.modelsFieldIsEnabled], isOn: $isEnabled)
                 }
             }
-            .navigationTitle(id == nil ? "Add Model" : "Edit Model")
+            .navigationTitle(id == nil ? language[.modelsAddTitle] : language[.modelsEditTitle])
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button(language[.actionCancel]) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+                    Button(language[.actionSave]) {
+                        let finalModelName = selectedVariant == Self.customSentinel
+                            ? customModelName.trimmingCharacters(in: .whitespacesAndNewlines)
+                            : selectedVariant
                         onSave(
                             ModelConfigurationDraft(
                                 id: id,
                                 name: name,
                                 provider: provider,
-                                modelName: modelName,
+                                modelName: finalModelName,
                                 baseURL: baseURL.isEmpty ? nil : URL(string: baseURL),
                                 apiKey: apiKey.isEmpty ? nil : apiKey,
                                 temperature: temperature,
@@ -367,9 +518,42 @@ private struct ModelConfigEditorView: View {
                             )
                         )
                     }
+                    .disabled(saveDisabled)
                 }
             }
         }
+    }
+
+    private var apiKeyPlaceholder: String {
+        if id == nil {
+            return language[.modelsFieldAPIKey]
+        }
+        return language[.modelsFieldAPIKeyReplace]
+    }
+
+    private var saveDisabled: Bool {
+        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+        if selectedVariant == Self.customSentinel {
+            return customModelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        return false
+    }
+
+    private func defaultEndpointHint() -> String {
+        guard let url = provider.defaultBaseURL else {
+            return language == .zh ? "本机模型，无需 endpoint。" : "On-device model, no endpoint required."
+        }
+        let prefix = language == .zh ? "留空使用默认：" : "Leave blank to use default: "
+        return prefix + url.absoluteString
+    }
+
+    /// Show a clarifying hint for Volcengine when in custom-model mode — they need an `ep-xxx` id,
+    /// not a model name like `gpt-4o`.
+    private func volcengineHintIfNeeded() -> String? {
+        guard provider == .volcengine, selectedVariant == Self.customSentinel else { return nil }
+        return language == .zh
+            ? "火山方舟的「model」字段应填接入点 ID，例如 ep-20250203120000-xxxxx。"
+            : "Volcengine Ark expects an endpoint id (e.g. ep-20250203120000-xxxxx) as the model field."
     }
 
     private func providerIcon(for provider: ModelProvider) -> String {
@@ -377,6 +561,7 @@ private struct ModelConfigEditorView: View {
         case .openai: "circle.grid.3x3"
         case .deepseek: "circle.hexagonpath"
         case .anthropic: "sparkle"
+        case .volcengine: "flame.fill"
         case .apple: "apple.logo"
         }
     }

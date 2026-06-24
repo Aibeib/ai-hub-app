@@ -204,6 +204,16 @@ final class AppRuntime: AppAuthorizationPresenter {
                 ?? modelConfigs.first { $0.isEnabled }
         }
         guard let model = modelRecord else { return false }
+        return modelHasAPIKey(model: model)
+    }
+
+    /// Quick check used by the Models card to show "已配置 / 缺密钥" badges.
+    func modelHasAPIKey(_ modelId: UUID) -> Bool {
+        guard let model = modelConfigs.first(where: { $0.id == modelId }) else { return false }
+        return modelHasAPIKey(model: model)
+    }
+
+    private func modelHasAPIKey(model: ModelConfigRecord) -> Bool {
         if model.provider == .apple { return true }
         let resolver = APIKeyResolver(secretStore: secretStore)
         let key = resolver.secretKey(for: model)
@@ -330,29 +340,40 @@ final class AppRuntime: AppAuthorizationPresenter {
             ModelConfigurationDraft(
                 name: "OpenAI",
                 provider: .openai,
-                modelName: "gpt-4.1-mini",
+                modelName: "gpt-4o",
                 baseURL: nil,
                 apiKey: nil,
                 temperature: 0.7,
-                maxTokens: 2_048,
+                maxTokens: 4_096,
                 isDefault: true,
                 isEnabled: true
             ),
             ModelConfigurationDraft(
                 name: "DeepSeek",
                 provider: .deepseek,
-                modelName: "deepseek-chat",
+                modelName: "deepseek-v4-pro",
                 baseURL: nil,
                 apiKey: nil,
                 temperature: 0.7,
-                maxTokens: 2_048,
+                maxTokens: 4_096,
                 isDefault: false,
                 isEnabled: true
             ),
             ModelConfigurationDraft(
                 name: "Claude",
                 provider: .anthropic,
-                modelName: "claude-sonnet-4-5",
+                modelName: "claude-sonnet-4-6",
+                baseURL: nil,
+                apiKey: nil,
+                temperature: 0.7,
+                maxTokens: 4_096,
+                isDefault: false,
+                isEnabled: true
+            ),
+            ModelConfigurationDraft(
+                name: "火山方舟",
+                provider: .volcengine,
+                modelName: "doubao-pro-4k",
                 baseURL: nil,
                 apiKey: nil,
                 temperature: 0.7,

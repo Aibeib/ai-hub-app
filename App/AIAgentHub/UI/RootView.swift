@@ -3,20 +3,34 @@ import AIAgentHubCore
 
 struct RootView: View {
     @Environment(AppRuntime.self) private var runtime
+    @Environment(AppLanguagePreference.self) private var languagePref
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var selectedRoute: AppRoute = .chat
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .doubleColumn
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $sidebarVisibility) {
-            SidebarView(selectedRoute: $selectedRoute)
-                .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
-        } detail: {
-            DetailContainer(route: selectedRoute)
+        let language = languagePref.current
+
+        Group {
+            // iPhone (compact width) → tab bar. iPad / Mac (regular width) → split view.
+            if horizontalSizeClass == .compact {
+                CompactRootView(selectedRoute: $selectedRoute, language: language)
+            } else {
+                RegularRootView(
+                    selectedRoute: $selectedRoute,
+                    sidebarVisibility: $sidebarVisibility,
+                    language: language
+                )
+            }
         }
-        .navigationSplitViewStyle(.balanced)
         .tint(DS.Palette.accent)
         .preferredColorScheme(nil)
-        .background(DS.Palette.surface.ignoresSafeArea())
+        .environment(\.appLanguage, language)
+        .onReceive(NotificationCenter.default.publisher(for: .openModelsTab)) { _ in
+            withAnimation(DS.Motion.springSnappy) {
+                selectedRoute = .models
+            }
+        }
         .alert(
             runtime.pendingAuthorization?.title ?? "Authorization required",
             isPresented: Binding(
@@ -24,7 +38,7 @@ struct RootView: View {
                 set: { if !$0 { runtime.resolvePendingAuthorization(approved: false) } }
             )
         ) {
-            Button("Cancel", role: .cancel) {
+            Button(language[.actionCancel], role: .cancel) {
                 runtime.resolvePendingAuthorization(approved: false)
             }
             Button("Approve", role: .destructive) {
@@ -36,11 +50,62 @@ struct RootView: View {
     }
 }
 
-// MARK: - Sidebar
+extension Notification.Name {
+    /// Posted when something (e.g. the missing-API-key banner) wants the user to land on
+    /// the Models tab without manually digging through the bottom bar.
+    static let openModelsTab = Notification.Name("AI-Hub.openModelsTab")
+}
+
+// MARK: - Compact (iPhone)
+
+private struct CompactRootView: View {
+    @Binding var selectedRoute: AppRoute
+    let language: AppLanguage
+
+    var body: some View {
+        TabView(selection: $selectedRoute) {
+            ForEach(AppRoute.allCases) { route in
+                NavigationStack {
+                    DetailContainer(route: route)
+                        .navigationTitle(route.title(in: language))
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbarBackground(DS.Palette.surface, for: .navigationBar)
+                        .toolbarBackground(.visible, for: .navigationBar)
+                }
+                .tabItem {
+                    Label(route.title(in: language), systemImage: route.systemImage)
+                }
+                .tag(route)
+            }
+        }
+    }
+}
+
+// MARK: - Regular (iPad / Mac)
+
+private struct RegularRootView: View {
+    @Binding var selectedRoute: AppRoute
+    @Binding var sidebarVisibility: NavigationSplitViewVisibility
+    let language: AppLanguage
+
+    var body: some View {
+        NavigationSplitView(columnVisibility: $sidebarVisibility) {
+            SidebarView(selectedRoute: $selectedRoute, language: language)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
+        } detail: {
+            DetailContainer(route: selectedRoute)
+        }
+        .navigationSplitViewStyle(.balanced)
+        .background(DS.Palette.surface.ignoresSafeArea())
+    }
+}
+
+// MARK: - Sidebar (iPad / Mac only)
 
 private struct SidebarView: View {
     @Environment(AppRuntime.self) private var runtime
     @Binding var selectedRoute: AppRoute
+    let language: AppLanguage
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -61,7 +126,7 @@ private struct SidebarView: View {
                         .foregroundStyle(DS.Palette.textPrimary)
                 }
 
-                Text("Local-first assistant")
+                Text(language == .zh ? "本地优先的助手" : "Local-first assistant")
                     .font(DS.Typography.caption)
                     .foregroundStyle(DS.Palette.textTertiary)
                     .tracking(0.4)
@@ -75,6 +140,7 @@ private struct SidebarView: View {
                 ForEach(AppRoute.allCases) { route in
                     SidebarRouteRow(
                         route: route,
+                        language: language,
                         isSelected: route == selectedRoute,
                         badge: badge(for: route)
                     )
@@ -95,8 +161,8 @@ private struct SidebarView: View {
                     .overlay(DS.Palette.separator)
 
                 HStack(spacing: DS.Space.xs) {
-                    DSStatusDot(status: .live, animated: true)
-                    Text("Local processing")
+                    DSStatusDot(status: .live, animated: false)
+                    Text(language == .zh ? "本地处理中" : "Local processing")
                         .font(DS.Typography.captionSmall)
                         .foregroundStyle(DS.Palette.textSecondary)
                     Spacer()
@@ -126,6 +192,7 @@ private struct SidebarView: View {
 
 private struct SidebarRouteRow: View {
     let route: AppRoute
+    let language: AppLanguage
     let isSelected: Bool
     let badge: Int?
 
@@ -136,7 +203,7 @@ private struct SidebarRouteRow: View {
                 .foregroundStyle(isSelected ? DS.Palette.accent : DS.Palette.textSecondary)
                 .frame(width: 22, alignment: .center)
 
-            Text(route.title)
+            Text(route.title(in: language))
                 .font(DS.Typography.callout.weight(isSelected ? .semibold : .regular))
                 .foregroundStyle(isSelected ? DS.Palette.textPrimary : DS.Palette.textSecondary)
 
@@ -182,7 +249,7 @@ private struct DetailContainer: View {
 
 // MARK: - Route enum
 
-enum AppRoute: String, CaseIterable, Identifiable {
+enum AppRoute: String, CaseIterable, Identifiable, Hashable {
     case chat
     case models
     case devices
@@ -190,18 +257,18 @@ enum AppRoute: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var title: String {
+    func title(in language: AppLanguage) -> String {
         switch self {
-        case .chat: "Conversations"
-        case .models: "Models"
-        case .devices: "Devices"
-        case .privacy: "Privacy"
+        case .chat: language[.tabChat]
+        case .models: language[.tabModels]
+        case .devices: language[.tabDevices]
+        case .privacy: language[.tabPrivacy]
         }
     }
 
     var systemImage: String {
         switch self {
-        case .chat: "bubble.left.and.bubble.right"
+        case .chat: "bubble.left.and.bubble.right.fill"
         case .models: "cpu"
         case .devices: "iphone.and.arrow.forward"
         case .privacy: "lock.shield"

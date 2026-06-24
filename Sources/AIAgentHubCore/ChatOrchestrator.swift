@@ -108,6 +108,7 @@ public final class ChatOrchestrator: @unchecked Sendable {
     }
 
     @discardableResult
+    @MainActor
     public func sendUserMessage(
         _ text: String,
         in sessionId: UUID,
@@ -125,7 +126,16 @@ public final class ChatOrchestrator: @unchecked Sendable {
 
     /// Streaming variant: tokens are pushed into `streamingBuffer` as they arrive. The final
     /// assistant message is still appended to the repository when the stream finishes.
+    ///
+    /// `@MainActor` is mandatory: the production repository is SwiftData-backed, and SwiftData's
+    /// main `ModelContext` is not thread-safe. Without this annotation the for-await loop body
+    /// (which calls `repository.appendMessage(...)`, `repository.recordTokenUsage(...)`, etc.)
+    /// resumes on the cooperative global pool per SE-0338 and crashes the moment the provider
+    /// streams its first SSE chunk back. The repository protocol can't be `@MainActor` because
+    /// the in-memory test implementation is plain `Sendable`; isolating the orchestrator itself
+    /// is the surgical fix.
     @discardableResult
+    @MainActor
     public func sendUserMessage(
         _ text: String,
         in sessionId: UUID,
@@ -276,6 +286,7 @@ public final class ChatOrchestrator: @unchecked Sendable {
     ///
     /// Returns the new assistant content. Throws if there's no user message to replay.
     @discardableResult
+    @MainActor
     public func regenerateLastAssistantMessage(
         in sessionId: UUID,
         using model: ResolvedModelConfig,
