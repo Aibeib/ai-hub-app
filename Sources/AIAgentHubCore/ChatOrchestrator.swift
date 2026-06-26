@@ -113,14 +113,17 @@ public final class ChatOrchestrator: @unchecked Sendable {
         _ text: String,
         in sessionId: UUID,
         using model: ResolvedModelConfig,
-        tools: [ToolDefinition] = []
+        tools: [ToolDefinition] = [],
+        preferredResponseLanguage: String? = nil
     ) async throws -> String {
         try await sendUserMessage(
             text,
             in: sessionId,
             using: model,
             tools: tools,
-            streamingBuffer: nil
+            streamingBuffer: nil,
+            onUserMessagePersisted: nil,
+            preferredResponseLanguage: preferredResponseLanguage
         )
     }
 
@@ -141,7 +144,9 @@ public final class ChatOrchestrator: @unchecked Sendable {
         in sessionId: UUID,
         using model: ResolvedModelConfig,
         tools: [ToolDefinition] = [],
-        streamingBuffer: StreamingResponseBuffer?
+        streamingBuffer: StreamingResponseBuffer? = nil,
+        onUserMessagePersisted: (@MainActor @Sendable () -> Void)? = nil,
+        preferredResponseLanguage: String? = nil
     ) async throws -> String {
         // Privacy gate: third-party providers may be globally disabled. On-device Apple models
         // bypass this check since the text never leaves the device.
@@ -180,16 +185,38 @@ public final class ChatOrchestrator: @unchecked Sendable {
             ChatMessageDTO(role: .user, content: outboundText),
             to: sessionId
         )
+        onUserMessagePersisted?()
 
         let context = contextBuilder.build(from: repository.messages(for: sessionId))
         var requestMessages = context
         // Prepend the session's system prompt, if any. Stored separately from the message log
         // so the user can re-edit it later without touching the conversation.
-        if let session = repository.session(id: sessionId),
-           let prompt = session.systemPrompt,
-           !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let userSystemPrompt = repository.session(id: sessionId)?
+            .systemPrompt?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // Always inject a baseline system message describing tool availability. Without this
+        // the model commonly replies "I can't access the internet" even though `web_fetch` is
+        // registered — the user only sees the empty-handed answer, not the tool catalog.
+        // We compose it with the user-supplied prompt (if any) rather than choose one over
+        // the other, so user steering still wins on tone/role.
+        let toolHint = Self.toolAvailabilityHint(
+            for: tools,
+            preferredLanguage: preferredResponseLanguage
+        )
+        let combinedSystem: String?
+        switch (userSystemPrompt, toolHint) {
+        case let (.some(user), .some(hint)) where !user.isEmpty:
+            combinedSystem = "\(user)\n\n\(hint)"
+        case let (.some(user), nil) where !user.isEmpty:
+            combinedSystem = user
+        case let (_, .some(hint)):
+            combinedSystem = hint
+        default:
+            combinedSystem = nil
+        }
+        if let combinedSystem {
             requestMessages.insert(
-                ChatMessageDTO(role: .system, content: prompt, timestamp: Date(timeIntervalSince1970: 0)),
+                ChatMessageDTO(role: .system, content: combinedSystem, timestamp: Date(timeIntervalSince1970: 0)),
                 at: 0
             )
         }
@@ -278,7 +305,59 @@ public final class ChatOrchestrator: @unchecked Sendable {
             || trimmed == "new chat"
             || trimmed == "new conversation"
             || trimmed == "untitled"
+            || trimmed == "新建对话"
+            || trimmed == "未命名"
             || trimmed.hasPrefix("chat ")
+    }
+
+    /// Compose a short system message that tells the model which tools it has. Without this
+    /// nudge several providers (DeepSeek in particular) reply "I have no internet access"
+    /// even though `web_fetch` is in the tools array — they only consult tools when something
+    /// in the conversation hints at their existence.
+    ///
+    /// We also embed today's date so trivia like "what day is it?" doesn't trigger an
+    /// unnecessary `web_fetch` call with empty/invented arguments.
+    ///
+    /// `preferredLanguage` is an ISO-639 short code (e.g. "zh", "en"). When supplied we
+    /// add a one-line instruction telling the model to write its final answer AND its
+    /// chain-of-thought in that language. The UI passes the current language so a Chinese
+    /// user gets a Chinese "推理过程" instead of an English thinking dump they can't read.
+    static func toolAvailabilityHint(
+        for tools: [ToolDefinition],
+        now: Date = Date(),
+        preferredLanguage: String? = nil
+    ) -> String? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        let dateLine = "Today's date is \(formatter.string(from: now)) (UTC). Use this for any \"what day is it / what's the date / current year\" questions instead of calling tools."
+
+        let languageLine: String?
+        switch preferredLanguage?.lowercased() {
+        case "zh", "zh-hans", "zh-cn":
+            languageLine = "请用简体中文回答用户，包括你的推理 / 思考过程（reasoning_content / <think>）也使用中文，除非用户明确要求其他语言。"
+        case "en", "en-us":
+            languageLine = "Reply in English by default, including the reasoning / thinking block, unless the user explicitly asks for another language."
+        case .none:
+            languageLine = nil
+        default:
+            // Generic instruction for any other language code — emits a soft hint without
+            // hard-coding a translation that might be inaccurate.
+            languageLine = "Reply in the user's UI language (\(preferredLanguage ?? "auto-detect")), including the reasoning / thinking block, unless the user explicitly asks otherwise."
+        }
+
+        var lines: [String] = [dateLine]
+        if let languageLine {
+            lines.append(languageLine)
+        }
+        if !tools.isEmpty {
+            let toolList = tools.map { "- \($0.name): \($0.description)" }.joined(separator: "\n")
+            lines.append("""
+                You have access to the following tools. Prefer calling them over refusing or claiming you cannot reach the internet. Only call a tool when its arguments can be filled with real values (e.g. don't call web_fetch without a concrete http(s) URL):
+                \(toolList)
+                """)
+        }
+        return lines.joined(separator: "\n\n")
     }
 
     /// Regenerate the most recent assistant message. Drops the trailing assistant (and tool)
@@ -291,7 +370,8 @@ public final class ChatOrchestrator: @unchecked Sendable {
         in sessionId: UUID,
         using model: ResolvedModelConfig,
         tools: [ToolDefinition] = [],
-        streamingBuffer: StreamingResponseBuffer? = nil
+        streamingBuffer: StreamingResponseBuffer? = nil,
+        preferredResponseLanguage: String? = nil
     ) async throws -> String {
         let messages = repository.messages(for: sessionId)
 
@@ -315,7 +395,9 @@ public final class ChatOrchestrator: @unchecked Sendable {
             in: sessionId,
             using: model,
             tools: tools,
-            streamingBuffer: streamingBuffer
+            streamingBuffer: streamingBuffer,
+            onUserMessagePersisted: nil,
+            preferredResponseLanguage: preferredResponseLanguage
         )
     }
 }

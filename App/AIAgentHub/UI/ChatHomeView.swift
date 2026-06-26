@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 import AIAgentHubCore
 
 struct ChatHomeView: View {
@@ -18,6 +21,7 @@ struct ChatHomeView: View {
     @State private var systemPromptDraft: SystemPromptDraft?
     @State private var isShowingSessionList = false
     @FocusState private var inputFocused: Bool
+    @FocusState private var searchFocused: Bool
 
     private struct FailedSend: Equatable {
         let sessionId: UUID
@@ -106,20 +110,25 @@ struct ChatHomeView: View {
                 }
             )
         }
-        .sheet(isPresented: $isShowingSessionList) {
-            NavigationStack {
-                sessionListPane(forSheet: true)
-                    .navigationTitle(language[.chatHistory])
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button(language[.actionDone]) {
-                                isShowingSessionList = false
-                            }
-                        }
+        .overlay(alignment: .leading) {
+            if isShowingSessionList {
+                SessionDrawerOverlay(
+                    language: language,
+                    content: {
+                        sessionListPane(forSheet: true)
+                    },
+                    onDismiss: {
+                        isShowingSessionList = false
                     }
+                )
+                .ignoresSafeArea()
+                .transition(.move(edge: .leading).combined(with: .opacity))
+                .zIndex(100)
             }
         }
+        .toolbar(isShowingSessionList ? .hidden : .visible, for: .tabBar)
+        .toolbar(isShowingSessionList ? .hidden : .visible, for: .navigationBar)
+        .animation(DS.Motion.springSnappy, value: isShowingSessionList)
         .onAppear {
             if selectedSessionId == nil {
                 selectedSessionId = runtime.restorableSessionId()
@@ -187,19 +196,25 @@ struct ChatHomeView: View {
 
             Spacer()
 
-            // New conversation
+            // New conversation. Filled-accent circle + white glyph — same visual weight
+            // as the primary send button so the user reads it as "primary action", not as
+            // a subtle ornament. The previous accentSoft tint with a textPrimary glyph
+            // looked washed out against the light surface.
             Button {
                 let session = runtime.createSession(title: language[.chatNewConversation])
                 selectedSessionId = session.id
                 inputFocused = true
             } label: {
-                Image(systemName: "square.and.pencil")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(DS.Palette.textPrimary)
-                    .frame(width: 36, height: 36)
-                    .background(
-                        Circle().fill(DS.Palette.accentSoft)
-                    )
+                ZStack {
+                    Circle().fill(DS.Palette.accent)
+                    Image(systemName: "plus.message.fill")
+                        .font(.system(size: 17, weight: .semibold))
+                        .symbolRenderingMode(.monochrome)
+                        .foregroundStyle(.white)
+                        .offset(y: 0.5)
+                }
+                .frame(width: 36, height: 36)
+                .shadow(color: DS.Palette.accent.opacity(0.25), radius: 6, x: 0, y: 3)
             }
             .buttonStyle(.plain)
 
@@ -261,13 +276,16 @@ struct ChatHomeView: View {
                         selectedSessionId = session.id
                         inputFocused = true
                     } label: {
-                        Image(systemName: "square.and.pencil")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(DS.Palette.textPrimary)
-                            .frame(width: 32, height: 32)
-                            .background(
-                                Circle().fill(DS.Palette.accentSoft)
-                            )
+                        ZStack {
+                            Circle().fill(DS.Palette.accent)
+                            Image(systemName: "plus.message.fill")
+                                .font(.system(size: 15, weight: .semibold))
+                                .symbolRenderingMode(.monochrome)
+                                .foregroundStyle(.white)
+                                .offset(y: 0.5)
+                        }
+                        .frame(width: 32, height: 32)
+                        .shadow(color: DS.Palette.accent.opacity(0.25), radius: 6, x: 0, y: 3)
                     }
                     .buttonStyle(.plain)
                 }
@@ -284,6 +302,12 @@ struct ChatHomeView: View {
                 TextField(language[.chatSearchPlaceholder], text: $searchQuery)
                     .textFieldStyle(.plain)
                     .font(DS.Typography.callout)
+                    .submitLabel(.search)
+                    .focused($searchFocused)
+                    .onSubmit {
+                        searchFocused = false
+                        KeyboardDismissal.dismiss()
+                    }
             }
             .padding(.horizontal, DS.Space.sm)
             .padding(.vertical, DS.Space.xs)
@@ -299,38 +323,14 @@ struct ChatHomeView: View {
             .padding(.top, forSheet ? DS.Space.sm : 0)
             .padding(.bottom, DS.Space.sm)
 
-            // New conversation (sheet only — header on regular layout already has this)
-            if forSheet {
-                Button {
-                    let session = runtime.createSession(title: language[.chatNewConversation])
-                    selectedSessionId = session.id
-                    isShowingSessionList = false
-                    inputFocused = true
-                } label: {
-                    HStack(spacing: DS.Space.sm) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 16))
-                            .foregroundStyle(DS.Palette.accent)
-                        Text(language[.chatNewConversation])
-                            .font(DS.Typography.callout.weight(.semibold))
-                            .foregroundStyle(DS.Palette.accent)
-                        Spacer()
-                    }
-                    .padding(.horizontal, DS.Space.md)
-                    .padding(.vertical, DS.Space.sm + 2)
-                    .background(
-                        RoundedRectangle(cornerRadius: DS.Radius.sm, style: .continuous)
-                            .fill(DS.Palette.accentSoft)
-                    )
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, DS.Space.lg)
-                .padding(.bottom, DS.Space.sm)
-            }
+            // In drawer mode the conversation list is list-only. New conversation lives
+            // on the main chat surface, matching the reference layout.
 
-            // Session list
+            // Session list. Use ScrollView/LazyVStack instead of List: List still hosts
+            // UIKit row gesture machinery that interferes with our custom swipe row. A
+            // plain scroll stack gives deterministic hit testing for the red delete action.
             ScrollView {
-                LazyVStack(spacing: 2, pinnedViews: [.sectionHeaders]) {
+                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: []) {
                     if visibleSessions.isEmpty {
                         Text(searchQuery.isEmpty
                              ? language[.chatNoConversationsYet]
@@ -342,48 +342,40 @@ struct ChatHomeView: View {
                             .padding(.vertical, DS.Space.md)
                     } else {
                         let groups = SessionDateGrouper().group(visibleSessions)
-                        // Compute previews in a single pass before the ForEach. Each
-                        // `messages(for:)` call is a full SwiftData fetch; doing it
-                        // inline per row was the second-biggest scroll cost after the
-                        // transcript bubbles.
                         let previews = visibleSessions.reduce(into: [UUID: String]()) {
                             $0[$1.id] = messagePreview(for: $1)
                         }
                         ForEach(groups, id: \.bucket) { group in
-                            Section {
-                                ForEach(group.sessions) { session in
-                                    SessionRow(
-                                        session: session,
-                                        isSelected: session.id == selectedSessionId,
-                                        preview: previews[session.id] ?? language[.chatStartHint],
-                                        language: language,
-                                        onSelect: {
-                                            withAnimation(DS.Motion.springSnappy) {
-                                                selectedSessionId = session.id
-                                                if forSheet {
-                                                    isShowingSessionList = false
-                                                }
-                                            }
-                                        },
-                                        onPin: { runtime.togglePin(session.id) },
-                                        onDelete: {
-                                            runtime.deleteSession(session.id)
-                                            if selectedSessionId == session.id {
-                                                selectedSessionId = nil
+                            SessionGroupHeader(title: group.bucket.title)
+                                .padding(.top, DS.Space.md)
+
+                            ForEach(group.sessions) { session in
+                                SessionRow(
+                                    session: session,
+                                    isSelected: session.id == selectedSessionId,
+                                    preview: previews[session.id] ?? language[.chatStartHint],
+                                    language: language,
+                                    showsDeleteButton: forSheet,
+                                    onSelect: {
+                                        withAnimation(DS.Motion.springSnappy) {
+                                            selectedSessionId = session.id
+                                            if forSheet {
+                                                isShowingSessionList = false
                                             }
                                         }
-                                    )
-                                    .equatable()
-                                    .padding(.horizontal, DS.Space.xs)
-                                }
-                            } header: {
-                                SessionGroupHeader(title: group.bucket.title)
+                                    },
+                                    onPin: { runtime.togglePin(session.id) },
+                                    onDelete: { deleteSession(session.id) }
+                                )
+                                .equatable()
                             }
                         }
                     }
                 }
                 .padding(.bottom, DS.Space.lg)
             }
+            .background(DS.Palette.surfaceRaised)
+            .scrollDismissesKeyboard(.interactively)
         }
         .background(DS.Palette.surfaceRaised)
     }
@@ -391,6 +383,21 @@ struct ChatHomeView: View {
     private func messagePreview(for session: ChatSessionRecord) -> String {
         let messages = runtime.chatRepository.messages(for: session.id)
         return messages.last?.content ?? language[.chatStartHint]
+    }
+
+    private func deleteSession(_ id: UUID) {
+        runtime.deleteSession(id)
+
+        let remainingVisible = visibleSessions
+        if remainingVisible.isEmpty {
+            selectedSessionId = nil
+            isShowingSessionList = false
+            return
+        }
+
+        if selectedSessionId == id {
+            selectedSessionId = remainingVisible.first?.id
+        }
     }
 
     // MARK: - Transcript pane (regular layout)
@@ -523,8 +530,7 @@ struct ChatHomeView: View {
                     Label(language[.actionArchive], systemImage: "archivebox")
                 }
                 Button(role: .destructive) {
-                    runtime.deleteSession(session.id)
-                    selectedSessionId = nil
+                    deleteSession(session.id)
                 } label: {
                     Label(language[.actionDelete], systemImage: "trash")
                 }
@@ -543,73 +549,39 @@ struct ChatHomeView: View {
     }
 
     private func transcriptScroll(for session: ChatSessionRecord) -> some View {
-        ScrollViewReader { proxy in
-            // Pull the message list once per body invocation. The repository call is a full
-            // SwiftData fetch — calling it inside ForEach + multiple onChange closures (as
-            // before) re-ran it 3-4× per scroll tick and was the dominant frame-drop source.
-            let messages = runtime.chatRepository.messages(for: session.id)
-            let messageCount = messages.count
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: DS.Space.lg) {
-                    if messages.isEmpty && !streamingIsActive {
-                        FirstMessageHint(language: language)
-                            .padding(.top, DS.Space.xxl)
-                    } else {
-                        ForEach(messages) { message in
-                            MessageBubble(
-                                message: message,
-                                language: language,
-                                onDelete: {
-                                    runtime.deleteMessage(message.id, in: session.id)
-                                },
-                                onBranch: {
-                                    if let branched = runtime.branchSession(from: session.id, atMessage: message.id) {
-                                        selectedSessionId = branched.id
-                                    }
-                                },
-                                onEdit: message.role == .user ? {
-                                    editingMessage = MessageEditTarget(
-                                        sessionId: session.id,
-                                        messageId: message.id,
-                                        originalContent: message.content
-                                    )
-                                } : nil,
-                                onToggleBookmark: {
-                                    runtime.toggleBookmark(message.id, in: session.id)
-                                }
-                            )
-                                .equatable()
-                                .id(message.id)
-                        }
-
-                        if streamingIsActive {
-                            StreamingBubble(
-                                text: streamingText,
-                                modelName: runtime.resolvedModelName(for: session.id)
-                                    ?? runtime.modelManager.defaultModel()?.name,
-                                language: language
-                            )
-                                .id("__streaming__")
-                        }
-                    }
+        // Establish an @Observable dependency on `messageRevision`. The repository's
+        // `messages(for:)` is a direct SwiftData fetch with no observation; without this
+        // line SwiftUI never re-renders when the user sends, deletes, or edits a message.
+        // Read first, then ignore — the compiler keeps the access live.
+        let _ = runtime.messageRevision
+        let messages = runtime.chatRepository.messages(for: session.id)
+        return TranscriptScrollView(
+            messages: messages,
+            streamingText: streamingText,
+            streamingIsActive: streamingIsActive,
+            language: language,
+            modelName: runtime.resolvedModelName(for: session.id)
+                ?? runtime.modelManager.defaultModel()?.name,
+            isCompact: isCompact,
+            onDeleteMessage: { id in runtime.deleteMessage(id, in: session.id) },
+            onBranch: { id in
+                if let branched = runtime.branchSession(from: session.id, atMessage: id) {
+                    selectedSessionId = branched.id
                 }
-                .padding(.horizontal, isCompact ? DS.Space.md : DS.Space.xl)
-                .padding(.vertical, DS.Space.lg)
+            },
+            onEdit: { messageId, originalContent in
+                editingMessage = MessageEditTarget(
+                    sessionId: session.id,
+                    messageId: messageId,
+                    originalContent: originalContent
+                )
+            },
+            onToggleBookmark: { id in runtime.toggleBookmark(id, in: session.id) },
+            onDismissKeyboard: {
+                inputFocused = false
+                KeyboardDismissal.dismiss()
             }
-            .background(DS.Palette.surface)
-            .onChange(of: streamingText) { _, _ in
-                withAnimation(.linear(duration: 0.12)) {
-                    proxy.scrollTo("__streaming__", anchor: .bottom)
-                }
-            }
-            .onChange(of: messageCount) { _, _ in
-                if let lastId = messages.last?.id {
-                    withAnimation(DS.Motion.springSnappy) {
-                        proxy.scrollTo(lastId, anchor: .bottom)
-                    }
-                }
-            }
-        }
+        )
     }
 
     private func inputBar(for session: ChatSessionRecord) -> some View {
@@ -631,21 +603,37 @@ struct ChatHomeView: View {
             }
 
             HStack(alignment: .bottom, spacing: DS.Space.sm) {
-                HStack(alignment: .bottom, spacing: DS.Space.xs) {
+                HStack(alignment: .center, spacing: DS.Space.xs) {
                     TextField(language[.chatInputPlaceholder], text: $draft, axis: .vertical)
                         .textFieldStyle(.plain)
                         .font(DS.Typography.body)
                         .lineLimit(1...6)
                         .focused($inputFocused)
+                        .submitLabel(.send)
                         .onSubmit { Task { await send(in: session) } }
+                        // SwiftUI's TextField(axis: .vertical) treats Return as "insert newline"
+                        // even with submitLabel(.send), and .onSubmit doesn't always fire on
+                        // iOS 17.x. Detect a trailing newline and treat it as the send action
+                        // — strip the newline from the draft before sending so the model
+                        // never receives the spurious "\n" the user didn't mean to type.
+                        .onChange(of: draft) { _, newValue in
+                            guard newValue.hasSuffix("\n") else { return }
+                            // If the buffer is *only* whitespace + newlines, just collapse it.
+                            let stripped = String(newValue.dropLast())
+                            draft = stripped
+                            let trimmed = stripped.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !trimmed.isEmpty, !isSending else { return }
+                            Task { await send(in: session) }
+                        }
 
                     if !draft.isEmpty {
                         Button {
                             draft = ""
                         } label: {
                             Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 14))
+                                .font(.system(size: 15, weight: .semibold))
                                 .foregroundStyle(DS.Palette.textTertiary)
+                                .frame(width: 28, height: 28)
                         }
                         .buttonStyle(.plain)
                     }
@@ -669,20 +657,24 @@ struct ChatHomeView: View {
                         Task { await send(in: session) }
                     }
                 } label: {
-                    Group {
-                        if isSending {
-                            Image(systemName: "stop.fill")
-                                .font(.system(size: 13, weight: .semibold))
-                        } else {
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 16, weight: .semibold))
-                        }
+                    ZStack {
+                        Circle().fill(sendButtonFill)
+                        Image(systemName: isSending ? "stop.fill" : "paperplane.fill")
+                            .font(.system(size: isSending ? 13 : 16, weight: .bold))
+                            .foregroundStyle(.white)
+                            .offset(x: isSending ? 0 : -1, y: isSending ? 0 : 1)
                     }
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
-                    .background(
+                    .accessibilityLabel(isSending ? (language == .zh ? "停止" : "Stop") : (language == .zh ? "发送" : "Send"))
+                    .frame(width: 42, height: 42)
+                    .overlay(
                         Circle()
-                            .fill(isSending ? DS.Palette.danger : (canSend ? DS.Palette.accent : DS.Palette.textTertiary))
+                            .stroke(.white.opacity(canSend || isSending ? 0.22 : 0), lineWidth: 1)
+                    )
+                    .shadow(
+                        color: (isSending ? DS.Palette.danger : DS.Palette.accent).opacity(canSend || isSending ? 0.28 : 0),
+                        radius: 10,
+                        x: 0,
+                        y: 5
                     )
                 }
                 .buttonStyle(.plain)
@@ -738,9 +730,27 @@ struct ChatHomeView: View {
         !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSending
     }
 
+    private var sendButtonFill: some ShapeStyle {
+        if isSending {
+            return AnyShapeStyle(DS.Palette.danger)
+        }
+        if canSend {
+            return AnyShapeStyle(
+                LinearGradient(
+                    colors: [DS.Palette.accent, DS.Palette.accent.opacity(0.78)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+        }
+        return AnyShapeStyle(DS.Palette.textTertiary.opacity(0.55))
+    }
+
     private func send(in session: ChatSessionRecord) async {
         guard canSend else { return }
         let raw = draft
+        inputFocused = false
+        KeyboardDismissal.dismiss()
 
         // Intercept slash commands before they ever reach the model.
         if case let .command(command, args) = SlashCommandParser.parse(raw) {
@@ -755,7 +765,12 @@ struct ChatHomeView: View {
                 in: session.id,
                 using: model,
                 tools: runtime.toolRegistry.definitions,
-                streamingBuffer: buffer
+                streamingBuffer: buffer,
+                onUserMessagePersisted: {
+                    runtime.messagesChanged()
+                    runtime.refreshSessions()
+                },
+                preferredResponseLanguage: language.rawValue
             )
         } onError: { error in
             let mapped = ErrorMessageMapper.message(for: error)
@@ -841,7 +856,12 @@ struct ChatHomeView: View {
                 in: session.id,
                 using: model,
                 tools: runtime.toolRegistry.definitions,
-                streamingBuffer: buffer
+                streamingBuffer: buffer,
+                onUserMessagePersisted: {
+                    runtime.messagesChanged()
+                    runtime.refreshSessions()
+                },
+                preferredResponseLanguage: language.rawValue
             )
         } onError: { error in
             let mapped = ErrorMessageMapper.message(for: error)
@@ -872,7 +892,8 @@ struct ChatHomeView: View {
                     in: session.id,
                     using: model,
                     tools: runtime.toolRegistry.definitions,
-                    streamingBuffer: buffer
+                    streamingBuffer: buffer,
+                    preferredResponseLanguage: language.rawValue
                 )
             } onError: { error in
                 errorMessage = ErrorMessageMapper.message(for: error).detail
@@ -886,7 +907,8 @@ struct ChatHomeView: View {
                 in: session.id,
                 using: model,
                 tools: runtime.toolRegistry.definitions,
-                streamingBuffer: buffer
+                streamingBuffer: buffer,
+                preferredResponseLanguage: language.rawValue
             )
         } onError: { error in
             errorMessage = ErrorMessageMapper.message(for: error).detail
@@ -932,8 +954,10 @@ struct ChatHomeView: View {
                     privacyPreferences: runtime.privacyPreferences
                 )
                 _ = try await run(orchestrator, resolvedModel, buffer)
+                runtime.messagesChanged()
                 runtime.refreshSessions()
             } catch is CancellationError {
+                runtime.messagesChanged()
                 runtime.refreshSessions()
             } catch {
                 onError(error)
@@ -964,6 +988,269 @@ struct ChatHomeView: View {
     }
 }
 
+// MARK: - Full-screen session drawer
+
+private struct SessionDrawerOverlay<Content: View>: View {
+    let language: AppLanguage
+    @ViewBuilder let content: () -> Content
+    let onDismiss: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var drawerWidth: CGFloat {
+        min(UIScreen.main.bounds.width * 0.82, 340)
+    }
+
+    private var drawerBackground: Color {
+        colorScheme == .dark
+            ? Color(red: 0.045, green: 0.045, blue: 0.050)
+            : DS.Palette.surface
+    }
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Color.black.opacity(colorScheme == .dark ? 0.42 : 0.24)
+                .ignoresSafeArea()
+                .onTapGesture(perform: onDismiss)
+
+            VStack(spacing: 0) {
+                HStack {
+                    Button(action: onDismiss) {
+                        Image(systemName: "line.3.horizontal")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(DS.Palette.textSecondary)
+                            .frame(width: 40, height: 40)
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer()
+
+                    Button(language[.actionDone], action: onDismiss)
+                        .font(DS.Typography.callout.weight(.semibold))
+                        .foregroundStyle(DS.Palette.accent)
+                }
+                .padding(.horizontal, DS.Space.md)
+                .padding(.top, DS.Space.lg)
+                .padding(.bottom, DS.Space.xs)
+
+                content()
+            }
+            .frame(width: drawerWidth)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .background(drawerBackground.ignoresSafeArea())
+            .clipShape(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 26,
+                    topTrailingRadius: 26,
+                    style: .continuous
+                )
+            )
+            .shadow(color: .black.opacity(colorScheme == .dark ? 0.42 : 0.18), radius: 28, x: 10, y: 0)
+            .ignoresSafeArea(edges: [.top, .bottom, .leading])
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .ignoresSafeArea()
+        .transition(.move(edge: .leading).combined(with: .opacity))
+    }
+}
+
+// MARK: - Transcript scroll view
+
+/// Transcript renderer. Owns the streaming-aware scroll behaviour that, prior to this
+/// refactor, lived inline in ChatHomeView.transcriptScroll(for:). Extracting it into a
+/// dedicated view lets us:
+///
+///   • Use a stable "bottom sentinel" view that the scroll lock anchors to. We pin the
+///     bottom edge to the sentinel — NOT to the streaming bubble — so a growing bubble
+///     never "drags" the viewport.
+///   • Treat user upward scrolling as a signal to *stop* auto-following. Once the user
+///     scrolls up to re-read context, every mature chat app (iMessage, ChatGPT,
+///     Claude.ai, DeepSeek web) stops tugging them back down. We do the same: a
+///     `PreferenceKey`-based bottom-distance sensor flips an `isPinnedToBottom` flag, and
+///     auto-scroll only runs while pinned.
+///   • Snap-scroll without `withAnimation`. iMessage and ChatGPT both render streaming
+///     by *appending* and snapping the scroll position — no spring, no `.linear`. The
+///     previous implementation wrapped every per-token `scrollTo` in
+///     `withAnimation(.linear 0.12)`, which made successive scrolls interrupt each other
+///     and produced both the visible jitter and the "lands on a random offset" symptom.
+private struct TranscriptScrollView: View {
+    let messages: [ChatMessageDTO]
+    let streamingText: String
+    let streamingIsActive: Bool
+    let language: AppLanguage
+    let modelName: String?
+    let isCompact: Bool
+    let onDeleteMessage: (UUID) -> Void
+    let onBranch: (UUID) -> Void
+    let onEdit: (UUID, String) -> Void
+    let onToggleBookmark: (UUID) -> Void
+    let onDismissKeyboard: () -> Void
+
+    /// Pixel slack below which we consider the user "at the bottom" — if the next
+    /// streaming chunk would push the sentinel out of view by less than this, we still
+    /// auto-scroll. 80pt covers the typical streamingBubble height growth between two
+    /// typewriter ticks at 60 chars/sec.
+    private static let bottomLockSlack: CGFloat = 80
+
+    @State private var isPinnedToBottom: Bool = true
+    /// Last known distance (in points) from the visible bottom edge to the sentinel.
+    /// Updated by the scroll-position sensor; used by the lock to decide whether
+    /// auto-scroll should still fire.
+    @State private var distanceFromBottom: CGFloat = 0
+    @State private var isUserDragging = false
+
+    var body: some View {
+        GeometryReader { viewport in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: DS.Space.lg) {
+                        if messages.isEmpty && !streamingIsActive {
+                            FirstMessageHint(language: language)
+                                .padding(.top, DS.Space.xxl)
+                        } else {
+                            ForEach(messages) { message in
+                                MessageBubble(
+                                    message: message,
+                                    language: language,
+                                    onDelete: { onDeleteMessage(message.id) },
+                                    onBranch: { onBranch(message.id) },
+                                    onEdit: message.role == .user
+                                        ? { onEdit(message.id, message.content) }
+                                        : nil,
+                                    onToggleBookmark: { onToggleBookmark(message.id) }
+                                )
+                                .equatable()
+                                .id(message.id)
+                            }
+
+                            if streamingIsActive {
+                                StreamingBubble(
+                                    text: streamingText,
+                                    modelName: modelName,
+                                    language: language
+                                )
+                                // Deliberately NOT used as a scroll target — the streaming
+                                // bubble grows over time so anchoring to it produces the
+                                // "scroll keeps chasing itself" symptom the user reported.
+                            }
+                        }
+
+                        // Bottom sentinel. 1pt tall, invisible, but it's what the scroll
+                        // lock targets so the viewport always settles at the same place
+                        // regardless of how the streaming bubble grew.
+                        Color.clear
+                            .frame(height: 1)
+                            .id(Self.bottomSentinelID)
+                            .background(bottomSensor(viewportHeight: viewport.size.height))
+                    }
+                    .padding(.horizontal, isCompact ? DS.Space.md : DS.Space.xl)
+                    .padding(.vertical, DS.Space.lg)
+                }
+                .coordinateSpace(name: Self.scrollCoordinateSpace)
+                .background(DS.Palette.surface)
+                .scrollDismissesKeyboard(.interactively)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 4)
+                        .onChanged { _ in
+                            isUserDragging = true
+                            isPinnedToBottom = false
+                        }
+                        .onEnded { _ in
+                            isUserDragging = false
+                        }
+                )
+                .onTapGesture {
+                    onDismissKeyboard()
+                }
+                // Auto-scroll the FIRST time streaming starts (so the new user message is
+                // pinned to the bottom). After that the per-token streamingText listener
+                // handles incremental follow-along.
+                .onChange(of: streamingIsActive) { _, active in
+                    if active {
+                        isPinnedToBottom = true
+                        snapToBottom(proxy: proxy)
+                    } else if isPinnedToBottom {
+                        // The streaming bubble is removed and replaced by the persisted
+                        // assistant message at the end of a generation. Let SwiftUI commit
+                        // that layout swap first, then snap to the bottom sentinel. Without
+                        // this deferred settle the scroll view can keep an offset that is
+                        // now beyond the shorter content, showing blank space until the
+                        // user touches the scroll view.
+                        DispatchQueue.main.async {
+                            proxy.scrollTo(Self.bottomSentinelID, anchor: .bottom)
+                        }
+                    }
+                }
+                // Follow each streaming token IFF the user hasn't scrolled away.
+                // No `withAnimation` — pure snap, the way every commercial chat client does
+                // it. Animating per-token both stutters (animations interrupt) and produces
+                // the "scrolls to a random offset" symptom because the LazyVStack content
+                // size is still settling when the animation fires.
+                .onChange(of: streamingText) { _, _ in
+                    guard streamingIsActive, isPinnedToBottom, !isUserDragging else { return }
+                    proxy.scrollTo(Self.bottomSentinelID, anchor: .bottom)
+                }
+                // Newly-appended messages (user sends, tool result lands, assistant message
+                // finalizes) — same rules: only auto-scroll if pinned.
+                .onChange(of: messages.count) { _, _ in
+                    if isPinnedToBottom {
+                        proxy.scrollTo(Self.bottomSentinelID, anchor: .bottom)
+                    }
+                }
+                .onAppear {
+                    // Initial position: bottom. Otherwise re-entering a long session lands
+                    // at the top, which is jarring.
+                    snapToBottom(proxy: proxy)
+                }
+                .onPreferenceChange(BottomDistancePreferenceKey.self) { distance in
+                    distanceFromBottom = distance
+                    // Treat "within slack of the bottom" as still-pinned. During an active
+                    // user drag we do NOT re-enable auto-follow, otherwise the stream fights
+                    // the user's finger and keeps pulling the transcript down.
+                    if !isUserDragging {
+                        isPinnedToBottom = distance <= Self.bottomLockSlack
+                    }
+                }
+            }
+        }
+    }
+
+    /// Snap to bottom without animation. Used on first appear / streaming start.
+    private func snapToBottom(proxy: ScrollViewProxy) {
+        proxy.scrollTo(Self.bottomSentinelID, anchor: .bottom)
+    }
+
+    /// Geometry probe that publishes the sentinel's distance from the visible bottom edge
+    /// via a PreferenceKey. IMPORTANT: both quantities are measured in the same named
+    /// scroll coordinate space. The previous version subtracted a named-coordinate value
+    /// from a global-coordinate value, which made `isPinnedToBottom` randomly flip and
+    /// caused exactly the "scroll jumps to arbitrary positions" symptom.
+    private func bottomSensor(viewportHeight: CGFloat) -> some View {
+        GeometryReader { geometry in
+            let sentinelBottom = geometry.frame(in: .named(Self.scrollCoordinateSpace)).maxY
+            let distance = max(0, sentinelBottom - viewportHeight)
+            Color.clear
+                .preference(key: BottomDistancePreferenceKey.self, value: distance)
+        }
+    }
+
+    private static let bottomSentinelID = "__transcript_bottom__"
+    private static let scrollCoordinateSpace = "transcriptScroll"
+}
+
+private struct BottomDistancePreferenceKey: PreferenceKey {
+    // PreferenceKey's `defaultValue` is a Swift 6 strict-concurrency landmine when it's
+    // a stored `static var`. SwiftUI calls it from main thread but the protocol doesn't
+    // mark it isolated, so the compiler complains. Computing it on each access sidesteps
+    // the warning at zero runtime cost.
+    static var defaultValue: CGFloat { 0 }
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        // We only ever publish one value (from the sentinel), so take the latest.
+        value = nextValue()
+    }
+}
+
 // MARK: - Session row
 
 private struct SessionRow: View, Equatable {
@@ -971,6 +1258,7 @@ private struct SessionRow: View, Equatable {
     let isSelected: Bool
     let preview: String
     let language: AppLanguage
+    let showsDeleteButton: Bool
     let onSelect: () -> Void
     let onPin: () -> Void
     let onDelete: () -> Void
@@ -983,53 +1271,66 @@ private struct SessionRow: View, Equatable {
             && lhs.isSelected == rhs.isSelected
             && lhs.preview == rhs.preview
             && lhs.language == rhs.language
+            && lhs.showsDeleteButton == rhs.showsDeleteButton
     }
 
     var body: some View {
-        Button(action: onSelect) {
-            HStack(alignment: .top, spacing: DS.Space.sm) {
-                if session.isPinned {
-                    Image(systemName: "pin.fill")
-                        .font(.system(size: 10))
-                        .foregroundStyle(DS.Palette.accent)
-                        .padding(.top, 4)
-                } else {
-                    Circle()
-                        .fill(Color.clear)
-                        .frame(width: 10, height: 10)
-                }
+        // Plain HStack + contentShape — NOT a Button. A `Button(action:)` inside a List
+        // row intercepts the row's gesture in ways that broke our previous swipe-to-delete
+        // (the button consumed the horizontal pan and the swipe never started). Tapping
+        // anywhere on the row still selects via `.onTapGesture` below.
+        HStack(alignment: .top, spacing: DS.Space.sm) {
+            if session.isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(DS.Palette.accent)
+                    .padding(.top, 4)
+            } else {
+                Circle()
+                    .fill(Color.clear)
+                    .frame(width: 10, height: 10)
+            }
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(session.title)
-                        .font(DS.Typography.callout.weight(.medium))
-                        .foregroundStyle(isSelected ? DS.Palette.textPrimary : DS.Palette.textPrimary.opacity(0.92))
-                        .lineLimit(1)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(session.title)
+                    .font(DS.Typography.callout.weight(.medium))
+                    .foregroundStyle(isSelected ? DS.Palette.textPrimary : DS.Palette.textPrimary.opacity(0.92))
+                    .lineLimit(1)
 
-                    Text(preview)
-                        .font(DS.Typography.captionSmall)
-                        .foregroundStyle(DS.Palette.textTertiary)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: 4)
-
-                RelativeTimestamp(date: session.updatedAt)
+                Text(preview)
                     .font(DS.Typography.captionSmall)
                     .foregroundStyle(DS.Palette.textTertiary)
                     .lineLimit(1)
             }
-            .padding(.horizontal, DS.Space.sm + 2)
-            .padding(.vertical, DS.Space.sm)
-            .background(
-                RoundedRectangle(cornerRadius: DS.Radius.sm, style: .continuous)
-                    .fill(isSelected ? DS.Palette.accentSoft : Color.clear)
-            )
+
+            Spacer(minLength: 4)
+
+            RelativeTimestamp(date: session.updatedAt)
+                .font(DS.Typography.captionSmall)
+                .foregroundStyle(DS.Palette.textTertiary)
+                .lineLimit(1)
+
+            if showsDeleteButton {
+                Image(systemName: "trash")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(DS.Palette.danger))
+                    .contentShape(Circle())
+                    .onTapGesture {
+                        onDelete()
+                    }
+            }
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, DS.Space.sm + 2)
+        .padding(.vertical, DS.Space.sm)
+        .background(
+            isSelected ? DS.Palette.accentSoft : Color.clear
+        )
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
         .contextMenu {
-            Button {
-                onPin()
-            } label: {
+            Button(action: onPin) {
                 Label(
                     session.isPinned ? language[.actionUnpin] : language[.actionPin],
                     systemImage: session.isPinned ? "pin.slash" : "pin"
@@ -1185,26 +1486,7 @@ private struct AssistantBubble: View {
                         .foregroundStyle(DS.Palette.textTertiary)
                 }
 
-                VStack(alignment: .leading, spacing: DS.Space.sm) {
-                    ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                        switch segment {
-                        case let .inline(content):
-                            InlineMarkdownText(content: content)
-                        case let .code(language, body):
-                            CodeBlockView(language: language, code: body)
-                        }
-                    }
-                }
-                .padding(.horizontal, DS.Space.md)
-                .padding(.vertical, DS.Space.sm + 2)
-                .background(
-                    RoundedRectangle(cornerRadius: DS.Radius.lg, style: .continuous)
-                        .fill(DS.Palette.assistantBubble)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: DS.Radius.lg, style: .continuous)
-                        .stroke(DS.Palette.border, lineWidth: 0.5)
-                )
+                AssistantSegmentStack(segments: segments, isStreaming: false, language: language)
             }
             Spacer(minLength: 32)
         }
@@ -1215,7 +1497,15 @@ private struct StreamingBubble: View {
     let text: String
     var modelName: String? = nil
     let language: AppLanguage
-    @State private var phase: Double = 0
+
+    /// Parse on every body invocation — streamingText changes per token, so caching here
+    /// buys nothing. Parser is cheap; the cost is in markdown rendering which we share
+    /// with `AssistantBubble` so geometry stays stable when the message finalizes (the
+    /// "bubble jumps a size" bug came from the streaming view using `Text(plain)` while
+    /// the final view used `Text(AttributedString)` — different line metrics).
+    private var segments: [MessageSegment] {
+        MessageSegmentParser.parse(text)
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: DS.Space.sm) {
@@ -1239,23 +1529,176 @@ private struct StreamingBubble: View {
                         .foregroundStyle(DS.Palette.textTertiary)
                 }
 
-                Text(text.isEmpty ? "…" : text)
-                    .font(DS.Typography.body)
-                    .foregroundStyle(DS.Palette.textPrimary)
-                    .lineSpacing(4)
-                    .padding(.horizontal, DS.Space.md)
-                    .padding(.vertical, DS.Space.sm + 2)
-                    .background(
-                        RoundedRectangle(cornerRadius: DS.Radius.lg, style: .continuous)
-                            .fill(DS.Palette.assistantBubble)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: DS.Radius.lg, style: .continuous)
-                            .stroke(DS.Palette.accent.opacity(0.35), lineWidth: 1)
-                    )
+                if segments.isEmpty {
+                    // Placeholder before the model emits its first token. Sized the same as
+                    // a one-line text bubble so the geometry doesn't pop when content
+                    // arrives.
+                    Text("…")
+                        .font(DS.Typography.body)
+                        .foregroundStyle(DS.Palette.textTertiary)
+                        .padding(.horizontal, DS.Space.md)
+                        .padding(.vertical, DS.Space.sm + 2)
+                        .background(
+                            RoundedRectangle(cornerRadius: DS.Radius.lg, style: .continuous)
+                                .fill(DS.Palette.assistantBubble)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: DS.Radius.lg, style: .continuous)
+                                .stroke(DS.Palette.accent.opacity(0.35), lineWidth: 1)
+                        )
+                } else {
+                    AssistantSegmentStack(segments: segments, isStreaming: true, language: language)
+                }
             }
             Spacer(minLength: 32)
         }
+        // Belt-and-braces: the StreamingBubble lives inside a transcript whose
+        // ScrollViewReader fires `withAnimation(.linear)` on every streamingText change.
+        // That implicit transaction makes the bubble animate its size as content grows
+        // — visible as a per-token "pulse". Suppressing it here means tokens just
+        // *appear*, the way every mature chat client (DeepSeek, ChatGPT, Claude) renders
+        // streaming.
+        .transaction { transaction in
+            transaction.animation = nil
+        }
+    }
+}
+
+/// Renders an assistant message body (markdown + code + thinking) in a single styled
+/// bubble. Used by both `AssistantBubble` (final message) and `StreamingBubble` (live
+/// stream) so the layout, padding, font metrics and bubble background are guaranteed
+/// identical — the previous mismatch was what produced the visible "size jump" the user
+/// saw when a stream finalized.
+private struct AssistantSegmentStack: View {
+    let segments: [MessageSegment]
+    let isStreaming: Bool
+    let language: AppLanguage
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.sm) {
+            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                switch segment {
+                case let .inline(content):
+                    InlineMarkdownText(content: content)
+                case let .code(lang, body):
+                    CodeBlockView(language: lang, code: body)
+                case let .thinking(content):
+                    ThinkingBlockView(content: content, isStreaming: isStreaming, language: language)
+                }
+            }
+        }
+        .padding(.horizontal, DS.Space.md)
+        .padding(.vertical, DS.Space.sm + 2)
+        .background(
+            RoundedRectangle(cornerRadius: DS.Radius.lg, style: .continuous)
+                .fill(DS.Palette.assistantBubble)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DS.Radius.lg, style: .continuous)
+                .stroke(isStreaming ? DS.Palette.accent.opacity(0.35) : DS.Palette.border, lineWidth: isStreaming ? 1 : 0.5)
+        )
+    }
+}
+
+/// DeepSeek-style collapsible "Thinking" card. Stays expanded by default — even after the
+/// stream finishes — so the user can re-read the reasoning. They can collapse manually
+/// via the chevron. We deliberately do NOT auto-collapse on completion: the previous
+/// behaviour (where the block disappeared the moment streaming ended) made it impossible
+/// to verify what the model thought after the fact.
+///
+/// Animation is suppressed on streaming token updates so the card doesn't pulse/jump as
+/// each delta arrives — the visible "jitter" the user complained about came from the
+/// implicit animation context leaking in from the ScrollViewReader's `withAnimation`
+/// scrollTo call.
+private struct ThinkingBlockView: View {
+    let content: String
+    let isStreaming: Bool
+    let language: AppLanguage
+    @State private var isExpanded: Bool = true
+
+    init(content: String, isStreaming: Bool, language: AppLanguage) {
+        self.content = content
+        self.isStreaming = isStreaming
+        self.language = language
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                // User-initiated expand/collapse — explicit easeOut so the toggle still
+                // feels alive. Token-driven re-renders, in contrast, run with their
+                // animation cleared by the `.transaction` modifier below.
+                withAnimation(.easeOut(duration: 0.18)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: DS.Space.xs) {
+                    Image(systemName: "brain")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(DS.Palette.textSecondary)
+                    Text(headerLabel)
+                        .font(DS.Typography.captionSmall.weight(.semibold))
+                        .foregroundStyle(DS.Palette.textSecondary)
+                    if isStreaming {
+                        DSStatusDot(status: .live, animated: true)
+                    }
+                    Spacer(minLength: 4)
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(DS.Palette.textTertiary)
+                }
+                .contentShape(Rectangle())
+                .padding(.horizontal, DS.Space.sm + 2)
+                .padding(.vertical, 6)
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                Text(content)
+                    .font(DS.Typography.caption)
+                    .foregroundStyle(DS.Palette.textSecondary)
+                    .lineSpacing(3)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, DS.Space.sm + 2)
+                    .padding(.vertical, DS.Space.xs + 2)
+                    .background(DS.Palette.surface.opacity(0.4))
+                    // Streaming token updates carry SwiftUI's implicit animation context
+                    // through from the ScrollViewReader's `withAnimation` block, which
+                    // made the card visibly pulse / resize on every token. Clearing the
+                    // animation here pins height growth to a single tick: text grows but
+                    // doesn't bounce. The user's manual chevron tap still animates
+                    // because that path uses its own explicit `withAnimation`.
+                    .transaction { transaction in
+                        if isStreaming {
+                            transaction.animation = nil
+                        }
+                    }
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: DS.Radius.sm, style: .continuous)
+                .fill(DS.Palette.surfaceElevated.opacity(0.65))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DS.Radius.sm, style: .continuous)
+                .stroke(DS.Palette.border, lineWidth: 0.5)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.sm, style: .continuous))
+        // Container-level suppression mirrors the inner text — bubble bounding box
+        // shouldn't animate as tokens grow it.
+        .transaction { transaction in
+            if isStreaming {
+                transaction.animation = nil
+            }
+        }
+    }
+
+    private var headerLabel: String {
+        if isStreaming {
+            return language == .zh ? "思考中..." : "Thinking..."
+        }
+        return language == .zh ? "推理过程" : "Reasoning"
     }
 }
 
@@ -1406,6 +1849,7 @@ private struct MessageEditView: View {
     let onSave: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var content: String
+    @FocusState private var editorFocused: Bool
 
     init(target: ChatHomeView.MessageEditTarget, language: AppLanguage, onSave: @escaping (String) -> Void) {
         self.target = target
@@ -1425,6 +1869,7 @@ private struct MessageEditView: View {
 
                 TextEditor(text: $content)
                     .font(DS.Typography.body)
+                    .focused($editorFocused)
                     .scrollContentBackground(.hidden)
                     .padding(DS.Space.sm)
                     .background(
@@ -1438,14 +1883,28 @@ private struct MessageEditView: View {
                     .frame(minHeight: 200)
             }
             .padding(DS.Space.md)
-            .background(DS.Palette.surface)
+            .background(
+                DS.Palette.surface
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        editorFocused = false
+                        KeyboardDismissal.dismiss()
+                    }
+            )
             .navigationTitle(language[.actionEditMessage])
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(language[.actionCancel]) { dismiss() }
+                    Button(language[.actionCancel]) {
+                        editorFocused = false
+                        KeyboardDismissal.dismiss()
+                        dismiss()
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(language == .zh ? "保存并重新生成" : "Save & regenerate") {
+                        editorFocused = false
+                        KeyboardDismissal.dismiss()
                         onSave(content)
                         dismiss()
                     }
@@ -1453,6 +1912,7 @@ private struct MessageEditView: View {
                 }
             }
         }
+        .scrollDismissesKeyboard(.interactively)
     }
 }
 
@@ -1464,6 +1924,7 @@ private struct SystemPromptEditorView: View {
     let onSave: (String?) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var content: String
+    @FocusState private var editorFocused: Bool
 
     init(initial: String, language: AppLanguage, onSave: @escaping (String?) -> Void) {
         self.initial = initial
@@ -1484,6 +1945,7 @@ private struct SystemPromptEditorView: View {
 
                     TextEditor(text: $content)
                         .font(DS.Typography.body)
+                        .focused($editorFocused)
                         .scrollContentBackground(.hidden)
                         .padding(DS.Space.sm)
                         .background(
@@ -1536,20 +1998,36 @@ private struct SystemPromptEditorView: View {
                     .padding(.bottom, DS.Space.lg)
                 }
             }
-            .background(DS.Palette.surface)
+            .background(
+                DS.Palette.surface
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        editorFocused = false
+                        KeyboardDismissal.dismiss()
+                    }
+            )
             .navigationTitle(language[.actionSetSystemPrompt])
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(language[.actionCancel]) { dismiss() }
+                    Button(language[.actionCancel]) {
+                        editorFocused = false
+                        KeyboardDismissal.dismiss()
+                        dismiss()
+                    }
                 }
                 ToolbarItem(placement: .destructiveAction) {
                     Button(language[.actionClear], role: .destructive) {
+                        editorFocused = false
+                        KeyboardDismissal.dismiss()
                         onSave(nil)
                         dismiss()
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(language[.actionSave]) {
+                        editorFocused = false
+                        KeyboardDismissal.dismiss()
                         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
                         onSave(trimmed.isEmpty ? nil : trimmed)
                         dismiss()
@@ -1557,6 +2035,7 @@ private struct SystemPromptEditorView: View {
                 }
             }
         }
+        .scrollDismissesKeyboard(.interactively)
     }
 }
 

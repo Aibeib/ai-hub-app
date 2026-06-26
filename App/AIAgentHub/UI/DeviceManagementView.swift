@@ -10,6 +10,12 @@ struct DeviceManagementView: View {
     @State private var highRiskCommand = false
     @State private var statusMessage: String?
     @State private var isScanning = false
+    @FocusState private var focusedField: FocusedField?
+
+    private enum FocusedField: Hashable {
+        case manualHost
+        case command
+    }
 
     private var boundDevices: [BoundDevice] { runtime.boundDevices }
 
@@ -108,6 +114,11 @@ struct DeviceManagementView: View {
                         .font(DS.Typography.callout)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        .submitLabel(.done)
+                        .focused($focusedField, equals: .manualHost)
+                        .onSubmit {
+                            focusedField = nil
+                        }
                         .padding(.horizontal, DS.Space.sm)
                         .padding(.vertical, DS.Space.xs + 2)
                         .background(
@@ -120,6 +131,8 @@ struct DeviceManagementView: View {
                         )
 
                     Button {
+                        focusedField = nil
+                        KeyboardDismissal.dismiss()
                         _ = runtime.deviceCoordinator.addManualMac(
                             name: "Manual Mac",
                             host: manualHost,
@@ -178,6 +191,13 @@ struct DeviceManagementView: View {
                             .lineLimit(1...3)
                             .textFieldStyle(.plain)
                             .font(DS.Typography.body)
+                            .submitLabel(.send)
+                            .focused($focusedField, equals: .command)
+                            .onSubmit {
+                                if let firstDevice = boundDevices.first {
+                                    Task { await sendCommand(to: firstDevice) }
+                                }
+                            }
                             .padding(.horizontal, DS.Space.sm)
                             .padding(.vertical, DS.Space.xs + 2)
                             .background(
@@ -204,6 +224,8 @@ struct DeviceManagementView: View {
                         HStack {
                             ForEach(boundDevices) { device in
                                 Button {
+                                    focusedField = nil
+                                    KeyboardDismissal.dismiss()
                                     Task { await sendCommand(to: device) }
                                 } label: {
                                     Label(String(format: language[.devicesCommandSend], device.name), systemImage: "arrow.up.message")
@@ -253,8 +275,17 @@ struct DeviceManagementView: View {
                 }
             }
             .padding(.bottom, DS.Space.xxl)
+            .background {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        focusedField = nil
+                        KeyboardDismissal.dismiss()
+                    }
+            }
         }
         .background(DS.Palette.surface)
+        .scrollDismissesKeyboard(.interactively)
         .animation(DS.Motion.easeOut, value: statusMessage)
         .task {
             discoveredDevices = []
@@ -270,6 +301,8 @@ struct DeviceManagementView: View {
     }
 
     private func sendCommand(to device: BoundDevice) async {
+        focusedField = nil
+        KeyboardDismissal.dismiss()
         let command = RemoteCommand(
             instruction: commandText,
             risk: highRiskCommand ? .high : .low

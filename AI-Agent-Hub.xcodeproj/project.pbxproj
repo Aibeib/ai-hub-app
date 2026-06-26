@@ -25,6 +25,9 @@
 		A10000000000000000000016 /* Localization/AppLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* Localization/AppLanguage.swift */; };
 		A10000000000000000000017 /* Localization/L10n.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* Localization/L10n.swift */; };
 		A10000000000000000000018 /* UI/ModelVariantCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000016 /* UI/ModelVariantCatalog.swift */; };
+		A10000000000000000000019 /* UI/KeyboardDismissal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000017 /* UI/KeyboardDismissal.swift */; };
+		A10000000000000000000020 /* Tooling/DeviceCapabilityTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* Tooling/DeviceCapabilityTools.swift */; };
+		A10000000000000000000021 /* UI/SwipeToDeleteRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000019 /* UI/SwipeToDeleteRow.swift */; };
 		A11000000000000000000001 /* DomainModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000001 /* DomainModels.swift */; };
 		A11000000000000000000002 /* PrivacyRedactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000002 /* PrivacyRedactor.swift */; };
 		A11000000000000000000003 /* Secrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000003 /* Secrets.swift */; };
@@ -96,6 +99,9 @@
 		A20000000000000000000014 /* Localization/AppLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization/AppLanguage.swift; sourceTree = "<group>"; };
 		A20000000000000000000015 /* Localization/L10n.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization/L10n.swift; sourceTree = "<group>"; };
 		A20000000000000000000016 /* UI/ModelVariantCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/ModelVariantCatalog.swift; sourceTree = "<group>"; };
+		A20000000000000000000017 /* UI/KeyboardDismissal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/KeyboardDismissal.swift; sourceTree = "<group>"; };
+		A20000000000000000000018 /* Tooling/DeviceCapabilityTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tooling/DeviceCapabilityTools.swift; sourceTree = "<group>"; };
+		A20000000000000000000019 /* UI/SwipeToDeleteRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/SwipeToDeleteRow.swift; sourceTree = "<group>"; };
 		A21000000000000000000001 /* DomainModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomainModels.swift; sourceTree = "<group>"; };
 		A21000000000000000000002 /* PrivacyRedactor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyRedactor.swift; sourceTree = "<group>"; };
 		A21000000000000000000003 /* Secrets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Secrets.swift; sourceTree = "<group>"; };
@@ -197,6 +203,9 @@
 				A20000000000000000000005 /* UI/ModelConfigListView.swift */,
 				A20000000000000000000006 /* UI/DeviceManagementView.swift */,
 				A20000000000000000000007 /* UI/PrivacyAndLogsView.swift */,
+				A20000000000000000000017 /* UI/KeyboardDismissal.swift */,
+				A20000000000000000000018 /* Tooling/DeviceCapabilityTools.swift */,
+				A20000000000000000000019 /* UI/SwipeToDeleteRow.swift */,
 				A20000000000000000000014 /* Localization/AppLanguage.swift */,
 				A20000000000000000000015 /* Localization/L10n.swift */,
 				A20000000000000000000016 /* UI/ModelVariantCatalog.swift */,
@@ -335,6 +344,9 @@
 				A10000000000000000000016 /* Localization/AppLanguage.swift in Sources */,
 				A10000000000000000000017 /* Localization/L10n.swift in Sources */,
 				A10000000000000000000018 /* UI/ModelVariantCatalog.swift in Sources */,
+				A10000000000000000000019 /* UI/KeyboardDismissal.swift in Sources */,
+				A10000000000000000000020 /* Tooling/DeviceCapabilityTools.swift in Sources */,
+				A10000000000000000000021 /* UI/SwipeToDeleteRow.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -521,6 +533,11 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "AI Agent Hub";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "AI Agent Hub uses the local network to discover and pair nearby trusted Macs.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "AI Agent Hub adds events to your calendar when you ask the assistant to schedule something.";
+				INFOPLIST_KEY_NSCalendarsWriteOnlyAccessUsageDescription = "AI Agent Hub adds events to your calendar when you ask the assistant to schedule something.";
+				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "AI Agent Hub creates reminders and alarms when you ask the assistant to set one.";
+				INFOPLIST_KEY_NSUserNotificationUsageDescription = "AI Agent Hub schedules local notifications so the assistant can remind you of alarms it sets for you.";
+				INFOPLIST_KEY_LSApplicationQueriesSchemes = "App-Prefs,alipay,alipays,baidumap,bilibili,cainiao,cn.12306,comgooglemaps,ctripcomh5,dianping,diditaxi,dingtalk,eleme,fb-messenger,feishu,firefox,googlechrome,imeituan,iosamap,kugou,kwai,kwapp,line,linkedin,mailto,maps,microsoft-edge,mqq,music,nflx,notion,openapp.jdmobile,orpheus,pinduoduo,qqmusic,qunariphone,sf-express,sinaweibo,slack,sms,snssdk1128,snssdk1233,snssdk141,snssdk32,spotify,taobao,tel,telegram,tg,tmall,uber,weixin,whatsapp,wxwork,xhsdiscover,youtube,zoomus";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -553,6 +570,11 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "AI Agent Hub";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "AI Agent Hub uses the local network to discover and pair nearby trusted Macs.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "AI Agent Hub adds events to your calendar when you ask the assistant to schedule something.";
+				INFOPLIST_KEY_NSCalendarsWriteOnlyAccessUsageDescription = "AI Agent Hub adds events to your calendar when you ask the assistant to schedule something.";
+				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "AI Agent Hub creates reminders and alarms when you ask the assistant to set one.";
+				INFOPLIST_KEY_NSUserNotificationUsageDescription = "AI Agent Hub schedules local notifications so the assistant can remind you of alarms it sets for you.";
+				INFOPLIST_KEY_LSApplicationQueriesSchemes = "App-Prefs,alipay,alipays,baidumap,bilibili,cainiao,cn.12306,comgooglemaps,ctripcomh5,dianping,diditaxi,dingtalk,eleme,fb-messenger,feishu,firefox,googlechrome,imeituan,iosamap,kugou,kwai,kwapp,line,linkedin,mailto,maps,microsoft-edge,mqq,music,nflx,notion,openapp.jdmobile,orpheus,pinduoduo,qqmusic,qunariphone,sf-express,sinaweibo,slack,sms,snssdk1128,snssdk1233,snssdk141,snssdk32,spotify,taobao,tel,telegram,tg,tmall,uber,weixin,whatsapp,wxwork,xhsdiscover,youtube,zoomus";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

@@ -3,9 +3,9 @@ import SwiftUI
 /// Design tokens for AI Agent Hub.
 ///
 /// Direction: "Quiet luxury, violet ink" — paired with the brand mark (gradient indigo→violet).
-/// Light mode is a clean, slightly cool off-white anchored by a saturated violet accent. Dark
-/// mode is a deep indigo-black, the same family as the icon's gradient base. Both feel like the
-/// same product, not two inverted skins.
+/// Light mode is a warm productivity off-white anchored by a saturated violet accent. Dark mode
+/// is a deep indigo-black, the same family as the icon's gradient base. Both feel like the same
+/// product, not two inverted skins.
 public enum DS {}
 
 // MARK: - Palette
@@ -14,83 +14,93 @@ public extension DS {
     /// Adaptive palette. Each entry has explicit light/dark values so neither mode looks like a
     /// machine-inverted copy of the other.
     enum Palette {
-        /// Page background — slightly cool off-white in light, deep indigo-black in dark
+        /// Page background — warm off-white in light, deep indigo-black in dark
         public static let surface = Color(
-            light: Color(red: 0.973, green: 0.969, blue: 0.984),
+            light: Color(red: 0.975, green: 0.972, blue: 0.985),
             dark: Color(red: 0.055, green: 0.051, blue: 0.110)
         )
 
-        /// Raised cards and side rails — slightly elevated from `surface`
+        /// Raised cards and side rails — warmer and distinct from `surface`
         public static let surfaceRaised = Color(
-            light: Color(red: 0.988, green: 0.984, blue: 0.996),
+            light: Color(red: 0.955, green: 0.950, blue: 0.970),
             dark: Color(red: 0.086, green: 0.082, blue: 0.157)
         )
 
         /// Most-elevated layer — bubbles, inputs, model cards
         public static let surfaceElevated = Color(
-            light: Color(red: 1.0, green: 1.0, blue: 1.0),
+            light: Color(red: 1.000, green: 0.998, blue: 1.000),
             dark: Color(red: 0.122, green: 0.118, blue: 0.196)
         )
 
         /// Primary ink (headlines, body text)
         public static let textPrimary = Color(
-            light: Color(red: 0.094, green: 0.082, blue: 0.149),
+            light: Color(red: 0.070, green: 0.065, blue: 0.095),
             dark: Color(red: 0.957, green: 0.957, blue: 0.973)
         )
 
         /// Secondary copy, captions, metadata
         public static let textSecondary = Color(
-            light: Color(red: 0.345, green: 0.333, blue: 0.412),
+            light: Color(red: 0.360, green: 0.345, blue: 0.430),
             dark: Color(red: 0.682, green: 0.690, blue: 0.745)
         )
 
         /// Quiet copy, placeholders, dividers
         public static let textTertiary = Color(
-            light: Color(red: 0.541, green: 0.529, blue: 0.604),
+            light: Color(red: 0.575, green: 0.555, blue: 0.650),
             dark: Color(red: 0.443, green: 0.451, blue: 0.522)
         )
 
         /// Hero accent — saturated violet matching the icon's mid-band
         public static let accent = Color(
-            light: Color(red: 0.467, green: 0.298, blue: 0.929),
+            light: Color(red: 0.470, green: 0.285, blue: 0.930),
             dark: Color(red: 0.659, green: 0.522, blue: 1.000)
         )
 
         /// Soft tint of accent — for active-state backgrounds, badges
         public static let accentSoft = Color(
-            light: Color(red: 0.937, green: 0.910, blue: 0.996),
+            light: Color(red: 0.905, green: 0.875, blue: 1.000),
             dark: Color(red: 0.184, green: 0.149, blue: 0.298)
         )
 
         /// Hairlines, separator strokes
         public static let separator = Color(
-            light: Color(red: 0.898, green: 0.886, blue: 0.929),
+            light: Color(red: 0.885, green: 0.875, blue: 0.925),
             dark: Color(red: 0.192, green: 0.184, blue: 0.275)
         )
 
         /// Subtle border on surfaces
         public static let border = Color(
-            light: Color(red: 0.906, green: 0.894, blue: 0.937),
+            light: Color(red: 0.850, green: 0.835, blue: 0.900),
             dark: Color(red: 0.231, green: 0.220, blue: 0.318)
         )
 
         // Semantic — tuned so they read against the indigo-black bg in dark mode
         public static let positive = Color(
-            light: Color(red: 0.169, green: 0.467, blue: 0.341),
+            light: Color(red: 0.145, green: 0.635, blue: 0.390),
             dark: Color(red: 0.494, green: 0.804, blue: 0.620)
         )
         public static let warning = Color(
-            light: Color(red: 0.741, green: 0.486, blue: 0.137),
+            light: Color(red: 0.865, green: 0.540, blue: 0.125),
             dark: Color(red: 0.973, green: 0.745, blue: 0.408)
         )
         public static let danger = Color(
-            light: Color(red: 0.769, green: 0.227, blue: 0.337),
+            light: Color(red: 0.950, green: 0.230, blue: 0.260),
             dark: Color(red: 0.973, green: 0.486, blue: 0.580)
+        )
+
+        // Shell and list surfaces
+        public static let tabBarBackground = Color(
+            light: Color(red: 1.000, green: 0.998, blue: 1.000).opacity(0.96),
+            dark: Color(red: 0.086, green: 0.082, blue: 0.157).opacity(0.94)
+        )
+        public static let listRowHighlight = Color(
+            light: Color(red: 0.930, green: 0.905, blue: 1.000),
+            dark: Color(red: 0.184, green: 0.149, blue: 0.298)
         )
 
         // Bubble specifics
         public static let userBubble = Color(
-            light: Color(red: 0.467, green: 0.298, blue: 0.929),
+            light: Color(red: 0.500, green: 0.330, blue: 0.960),
             dark: Color(red: 0.553, green: 0.408, blue: 0.965)
         )
         public static let userBubbleText = Color(
@@ -98,7 +108,7 @@ public extension DS {
             dark: Color.white
         )
         public static let assistantBubble = Color(
-            light: Color(red: 1.0, green: 1.0, blue: 1.0),
+            light: Color(red: 1.000, green: 0.998, blue: 1.000),
             dark: Color(red: 0.122, green: 0.118, blue: 0.196)
         )
 

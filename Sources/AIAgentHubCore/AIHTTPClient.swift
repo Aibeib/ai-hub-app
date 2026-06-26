@@ -235,8 +235,9 @@ private struct OpenAICompatibleRequestBody: Encodable {
         self.temperature = temperature
         self.maxTokens = maxTokens
         self.stream = stream
-        // Opt into the OpenAI usage chunk; DeepSeek mirrors the same field and is harmless
-        // for other compatible providers — unknown fields are ignored on the server side.
+        // Opt into the usage chunk for providers that implement the OpenAI-compatible
+        // streaming extension. Compatible providers that don't support usage chunks should
+        // ignore unknown request fields.
         self.streamOptions = StreamOptions(includeUsage: true)
         self.tools = tools
     }
@@ -249,6 +250,19 @@ private struct OpenAICompatibleRequestBody: Encodable {
         case stream
         case streamOptions = "stream_options"
         case tools
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(model, forKey: .model)
+        try container.encode(messages, forKey: .messages)
+        try container.encode(temperature, forKey: .temperature)
+        try container.encode(maxTokens, forKey: .maxTokens)
+        try container.encode(stream, forKey: .stream)
+        try container.encode(streamOptions, forKey: .streamOptions)
+        if !tools.isEmpty {
+            try container.encode(tools, forKey: .tools)
+        }
     }
 
     struct StreamOptions: Encodable {
@@ -301,6 +315,18 @@ private struct ClaudeRequestBody: Encodable {
         case temperature
         case stream
         case tools
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(model, forKey: .model)
+        try container.encode(messages, forKey: .messages)
+        try container.encode(maxTokens, forKey: .maxTokens)
+        try container.encode(temperature, forKey: .temperature)
+        try container.encode(stream, forKey: .stream)
+        if !tools.isEmpty {
+            try container.encode(tools, forKey: .tools)
+        }
     }
 
     struct Message: Encodable {

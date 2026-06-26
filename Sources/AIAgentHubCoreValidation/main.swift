@@ -7,18 +7,23 @@ struct ValidationRunner {
         do {
             try validatePrivacyRedactor()
             try await validateToolRegistry()
+            try await validateWebFetchTool()
+            try validateDefaultToolSetIsProviderNeutral()
             try validateSSEParsers()
+            try validateSSEParserStreamingStress()
             try validateProviderToolSchemas()
+            try validateProviderRequestsOmitEmptyTools()
             try validateSecretStore()
             try validateRepositories()
             try await validateModelConfigurationFlow()
             try await validateChatOrchestrator()
+            try await validateUserMessagePersistenceCallback()
             try await validateToolCallingChatLoop()
             try await validateDeviceCoordinator()
             try await validateSandboxExecutor()
             try validateEncryptedTransport()
             try validateEncryptedRemoteTransportCodec()
-            try await validateStreamingResponseBuffer()
+            try await validateStreamingResponseBuffer(instantReveal: true)
             try validatePrivacyPreferences()
             try validateSessionMutationOperations()
             try await validateStreamingChatOrchestrator()
@@ -110,6 +115,46 @@ struct ValidationRunner {
         }
     }
 
+    private static func validateWebFetchTool() async throws {
+        let tool = WebFetchTool(
+            client: StubWebContentClient(result: WebFetchResult(
+                url: URL(string: "https://example.com/page")!,
+                title: "Example Page",
+                text: "A current reference page for all providers."
+            ))
+        )
+
+        let result = try await tool.execute(arguments: [
+            "url": .string("https://example.com/page")
+        ])
+
+        try require(tool.definition.name == "web_fetch", "web tool should have provider-neutral name")
+        try require(result.displayText.contains("Example Page"), "web fetch result should include title")
+        try require(result.displayText.contains("all providers"), "web fetch result should include page text")
+
+        // Non-http schemes should be rejected — but as a friendly tool result, not as a
+        // thrown error. Throwing tears down the user's whole chat send; returning a
+        // tool message lets the model recover on the next turn.
+        let rejected = try await tool.execute(arguments: ["url": .string("file:///etc/passwd")])
+        try require(
+            rejected.displayText.contains("http(s)"),
+            "web fetch should explain the http(s) requirement when given a bad scheme"
+        )
+
+        let empty = try await tool.execute(arguments: ["url": .string("")])
+        try require(
+            empty.displayText.contains("http(s)"),
+            "web fetch should explain the http(s) requirement when given an empty URL"
+        )
+    }
+
+    private static func validateDefaultToolSetIsProviderNeutral() throws {
+        let tools: [any Tool] = [TextSummaryTool(), WebFetchTool()]
+        let names = Set(tools.map(\.definition.name))
+        try require(names.contains("web_fetch"), "default tool set should expose provider-neutral web fetch")
+        try require(!names.contains { $0.lowercased().contains("deepseek") }, "default tools must not be provider-specific")
+    }
+
     private static func validateSSEParsers() throws {
         let openAIPayload = """
         data: {"choices":[{"delta":{"content":"Hel"}}]}
@@ -133,18 +178,156 @@ struct ValidationRunner {
         let claudeEvents = try ClaudeSSEParser().parse(claudePayload.data(using: .utf8)!)
         try require(claudeEvents == [.token("Hi"), .completed], "Claude SSE parse mismatch")
 
-        let claudeToolPayload = """
+        // Claude streams tool_use as start → N input_json_delta → stop. The parser must
+        // accumulate the partial JSON and emit a single ToolCallRequest at stop, not one
+        // per delta. This is the bug that caused the iOS app to spam web_fetch with
+        // half-formed JSON and surface "web_fetch requires an http(s) URL" alerts.
+        let claudeStreamingToolPayload = """
         event: content_block_start
-        data: {"type":"content_block_start","content_block":{"type":"tool_use","id":"toolu_1","name":"summarize_text","input":{"text":"hello"}}}
+        data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"web_fetch","input":{}}}
+
+        event: content_block_delta
+        data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"url\\":"}}
+
+        event: content_block_delta
+        data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\\"https://example.com\\"}"}}
+
+        event: content_block_stop
+        data: {"type":"content_block_stop","index":0}
+
+        event: message_stop
+        data: {"type":"message_stop"}
 
         """
-        let claudeToolEvents = try ClaudeSSEParser().parse(claudeToolPayload.data(using: .utf8)!)
+        let claudeStreamingEvents = try ClaudeSSEParser().parse(claudeStreamingToolPayload.data(using: .utf8)!)
         try require(
-            claudeToolEvents == [
-                .toolCall(ToolCallRequest(id: "toolu_1", name: "summarize_text", argumentsJSON: #"{"text":"hello"}"#))
+            claudeStreamingEvents == [
+                .toolCall(ToolCallRequest(id: "toolu_1", name: "web_fetch", argumentsJSON: #"{"url":"https://example.com"}"#)),
+                .completed
             ],
-            "Claude tool use parse mismatch"
+            "Claude streaming tool use must accumulate partial_json before emitting"
         )
+
+        // OpenAI / DeepSeek streams tool_calls by dribbling `arguments` fragments. The first
+        // delta carries id+name, subsequent deltas only the index + fragment. Parser must
+        // stitch them back together and emit one ToolCallRequest at finish_reason=tool_calls.
+        let openAIStreamingToolPayload = """
+        data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"web_fetch","arguments":""}}]}}]}
+
+        data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"url\\":"}}]}}]}
+
+        data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"https://x.com\\"}"}}]}}]}
+
+        data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}
+
+        data: [DONE]
+
+        """
+        let openAIStreamingEvents = try OpenAICompatibleSSEParser().parse(openAIStreamingToolPayload.data(using: .utf8)!)
+        // Order matters: tool call must flush BEFORE the .stop(.toolUse) so the orchestrator
+        // can execute the tool and append the result message before the stream finalizes.
+        try require(
+            openAIStreamingEvents.contains(
+                .toolCall(ToolCallRequest(id: "call_1", name: "web_fetch", argumentsJSON: #"{"url":"https://x.com"}"#))
+            ),
+            "OpenAI streaming tool_calls must accumulate arguments and emit one full ToolCallRequest. Got: \(openAIStreamingEvents)"
+        )
+        try require(
+            openAIStreamingEvents.contains(.completed),
+            "OpenAI streaming must still terminate with .completed"
+        )
+
+        // Stress: split the same call across many tiny fragments (simulating the worst-case
+        // token-per-character streaming some providers do). Result must still be one call.
+        let tiny = """
+        data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c","function":{"name":"web_fetch","arguments":"{"}}]}}]}
+
+        data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"url\\""}}]}}]}
+
+        data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":":\\"h"}}]}}]}
+
+        data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"ttps://y\\""}}]}}]}
+
+        data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"}"}}]}}]}
+
+        data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}
+
+        data: [DONE]
+
+        """
+        let tinyEvents = try OpenAICompatibleSSEParser().parse(tiny.data(using: .utf8)!)
+        let tinyToolCalls = tinyEvents.compactMap { event -> ToolCallRequest? in
+            if case let .toolCall(call) = event { return call } else { return nil }
+        }
+        try require(tinyToolCalls.count == 1, "Tiny-fragment stream must emit exactly ONE tool call, got \(tinyToolCalls.count)")
+        try require(
+            tinyToolCalls.first?.argumentsJSON == #"{"url":"https://y"}"#,
+            "Tiny-fragment stream args mismatch: \(tinyToolCalls.first?.argumentsJSON ?? "nil")"
+        )
+    }
+
+    /// Stress test: split realistic SSE payloads across many `parse()` calls (one chunk
+    /// of bytes per call, as `URLSession.bytes(for:)` would deliver them) and confirm
+    /// the parser state survives the splitting. This is the regression test for the
+    /// "DeepSeek/web_fetch invoked N times with half-formed JSON" bug — the parser must
+    /// keep accumulating until finish_reason fires, no matter how the bytes arrive.
+    private static func validateSSEParserStreamingStress() throws {
+        // Build a realistic OpenAI-style stream: 1 reasoning prelude, 1 tool call whose
+        // arguments are split across 20 tiny fragments, then finish_reason=tool_calls.
+        var lines: [String] = []
+        // 5 reasoning_content deltas (DeepSeek-style)
+        for chunk in ["I need ", "to fetch ", "the page ", "first", "."] {
+            lines.append(#"data: {"choices":[{"delta":{"reasoning_content":"\#(chunk)"}}]}"#)
+        }
+        // tool call header
+        lines.append(#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_abc","function":{"name":"web_fetch","arguments":""}}]}}]}"#)
+        // 20 argument fragments
+        let argFragments = [
+            "{", "\"url\"", ":", "\"http", "s://", "exam", "ple.", "com/",
+            "pag", "e?", "x=", "1&", "y=", "2&", "z=", "3", "\"", "}",
+            "", ""
+        ]
+        for frag in argFragments {
+            let escaped = frag.replacingOccurrences(of: "\"", with: "\\\"")
+            lines.append(#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\#(escaped)"}}]}}]}"#)
+        }
+        // finish_reason
+        lines.append(#"data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}"#)
+        lines.append("data: [DONE]")
+        lines.append("")
+
+        let parser = OpenAICompatibleSSEParser()
+        var allEvents: [ChatStreamEvent] = []
+        // Feed one event-block at a time (separated by \n\n) — most realistic.
+        for line in lines {
+            let payload = (line + "\n\n").data(using: .utf8)!
+            allEvents.append(contentsOf: try parser.parse(payload))
+        }
+
+        // Expect: exactly ONE tool call, with the fully reassembled URL.
+        let toolCalls = allEvents.compactMap { event -> ToolCallRequest? in
+            if case let .toolCall(call) = event { return call } else { return nil }
+        }
+        try require(toolCalls.count == 1, "Streaming stress: expected 1 tool call, got \(toolCalls.count)")
+        try require(
+            toolCalls.first?.argumentsJSON == #"{"url":"https://example.com/page?x=1&y=2&z=3"}"#,
+            "Streaming stress: arguments reassembled wrong: \(toolCalls.first?.argumentsJSON ?? "nil")"
+        )
+
+        // Tokens carry the reasoning wrapped in <think>…</think> so the UI's segment
+        // parser can turn it into a collapsible block.
+        let joinedTokens = allEvents.compactMap { event -> String? in
+            if case let .token(t) = event { return t } else { return nil }
+        }.joined()
+        try require(joinedTokens.contains("<think>"), "Streaming stress: missing <think> open marker")
+        try require(joinedTokens.contains("I need to fetch the page first."), "Streaming stress: reasoning text not reassembled (got: \(joinedTokens))")
+
+        // Test parser per-instance isolation: a second parser must NOT inherit pending
+        // state from the first. (Catches a regression where someone makes pending state
+        // static.)
+        let parser2 = OpenAICompatibleSSEParser()
+        let isolated = try parser2.parse(Data("data: [DONE]\n\n".utf8))
+        try require(isolated == [.completed], "Fresh parser should not see prior pending state")
     }
 
     private static func validateProviderToolSchemas() throws {
@@ -182,6 +365,53 @@ struct ValidationRunner {
         let claudeBody = try requireJSONObject(claudeRequest.httpBody)
         let claudeTools = claudeBody["tools"] as? [[String: Any]]
         try require(claudeTools?.first?["name"] as? String == "summarize_text", "Claude tool name missing")
+    }
+
+    private static func validateProviderRequestsOmitEmptyTools() throws {
+        let openAICompatibleModel = ResolvedModelConfig(
+            id: UUID(),
+            provider: .volcengine,
+            name: "Compatible Provider",
+            modelName: "provider-model",
+            endpoint: URL(string: "https://provider.example.com/chat/completions"),
+            apiKey: "sk-test",
+            temperature: 0.7,
+            maxTokens: 512
+        )
+        let openAICompatibleRequest = ChatRequest(
+            model: openAICompatibleModel,
+            messages: [ChatMessageDTO(role: .user, content: "Hello")],
+            tools: [],
+            temperature: openAICompatibleModel.temperature,
+            maxTokens: openAICompatibleModel.maxTokens
+        )
+
+        let openAICompatibleURLRequest = try OpenAICompatibleRequestBuilder().build(openAICompatibleRequest)
+        let body = try requireJSONObject(openAICompatibleURLRequest.httpBody)
+        try require(openAICompatibleURLRequest.url == openAICompatibleModel.endpoint, "custom compatible endpoint mismatch")
+        try require(body["tools"] == nil, "empty tools array should be omitted for OpenAI-compatible providers")
+
+        let claudeModel = ResolvedModelConfig(
+            id: UUID(),
+            provider: .anthropic,
+            name: "Claude",
+            modelName: "claude-test",
+            endpoint: ModelProvider.anthropic.defaultBaseURL,
+            apiKey: "sk-test",
+            temperature: 0.7,
+            maxTokens: 512
+        )
+        let claudeRequest = ChatRequest(
+            model: claudeModel,
+            messages: [ChatMessageDTO(role: .user, content: "Hello")],
+            tools: [],
+            temperature: claudeModel.temperature,
+            maxTokens: claudeModel.maxTokens
+        )
+
+        let claudeURLRequest = try ClaudeRequestBuilder().build(claudeRequest)
+        let claudeBody = try requireJSONObject(claudeURLRequest.httpBody)
+        try require(claudeBody["tools"] == nil, "empty tools array should be omitted for Claude-compatible providers")
     }
 
     private static func validateSecretStore() throws {
@@ -301,6 +531,38 @@ struct ValidationRunner {
         let messages = repository.messages(for: session.id)
         try require(messages.count == 2, "chat should persist user and assistant messages")
         try require(messages[0].content.contains("[local-path]"), "user message should be redacted")
+    }
+
+    @MainActor
+    private static func validateUserMessagePersistenceCallback() async throws {
+        let repository = InMemoryChatRepository()
+        let session = repository.createSession(title: "Chat", modelConfigId: nil)
+        let model = ResolvedModelConfig(
+            id: UUID(),
+            provider: .openai,
+            name: "Test",
+            modelName: "gpt-test",
+            endpoint: URL(string: "https://example.com"),
+            apiKey: "sk-test",
+            temperature: 0.7,
+            maxTokens: 100
+        )
+        var callbackMessageCount = 0
+        let orchestrator = ChatOrchestrator(
+            repository: repository,
+            aiService: StubAIService(events: [.token("Hi"), .completed])
+        )
+
+        _ = try await orchestrator.sendUserMessage(
+            "Show immediately",
+            in: session.id,
+            using: model,
+            onUserMessagePersisted: {
+                callbackMessageCount = repository.messages(for: session.id).count
+            }
+        )
+
+        try require(callbackMessageCount == 1, "user message persistence callback should run before assistant append")
     }
 
     private static func validateToolCallingChatLoop() async throws {
@@ -435,8 +697,8 @@ struct ValidationRunner {
 
     // MARK: - New: streaming buffer
 
-    private static func validateStreamingResponseBuffer() async throws {
-        let buffer = StreamingResponseBuffer()
+    private static func validateStreamingResponseBuffer(instantReveal: Bool) async throws {
+        let buffer = StreamingResponseBuffer(instantReveal: instantReveal)
 
         // Subscribe first, then produce. Without ordering you race the producer against the
         // observer's registration and the early snapshots are missed.
@@ -471,12 +733,55 @@ struct ValidationRunner {
         try require(snap.failure == nil, "buffer should have no failure")
 
         // Failure path
-        let failBuffer = StreamingResponseBuffer()
+        let failBuffer = StreamingResponseBuffer(instantReveal: true)
         await failBuffer.append(token: "partial")
         await failBuffer.fail("provider exploded")
         let failSnap = await failBuffer.snapshot()
         try require(failSnap.failure == "provider exploded", "failure message lost")
         try require(failSnap.isCompleted, "failed buffer should be marked completed")
+
+        // Typewriter pacing: when instantReveal is false, the snapshot text reveals
+        // gradually. We don't try to be cycle-accurate here — just that (a) the visible
+        // text trails currentText right after a big chunk arrives, and (b) complete()
+        // flushes the rest so the user doesn't sit watching characters trickle out
+        // after the model has already stopped.
+        let paced = StreamingResponseBuffer(
+            revealCharactersPerSecond: 30,
+            tickInterval: 0.05,
+            instantReveal: false
+        )
+        let bigChunk = String(repeating: "x", count: 200)
+        await paced.append(token: bigChunk)
+        // Sample immediately — the ticker has had ~0ms to run, so visible should be
+        // shorter than the full chunk (or equal if scheduling ran already, which is
+        // fine — the contract is "never longer").
+        let earlySnap = await paced.snapshot()
+        try require(earlySnap.text.count <= bigChunk.count, "visible can't exceed current")
+        // Now complete and confirm the rest flushes immediately.
+        await paced.complete()
+        let finalSnap = await paced.snapshot()
+        try require(
+            finalSnap.text.count == bigChunk.count,
+            "complete() must flush remaining typewriter buffer (got \(finalSnap.text.count) of \(bigChunk.count))"
+        )
+
+        // Ticker re-arm: append a tiny chunk, wait for it to fully reveal and for the
+        // ticker task to naturally finish, then append more. The second append must
+        // start a new ticker. This catches the bug where releaseTask stayed non-nil
+        // forever after natural completion.
+        let rearm = StreamingResponseBuffer(
+            revealCharactersPerSecond: 500,
+            tickInterval: 0.01,
+            instantReveal: false
+        )
+        await rearm.append(token: "a")
+        try await Task.sleep(nanoseconds: 80_000_000)
+        let first = await rearm.snapshot().text
+        try require(first == "a", "rearm first chunk should reveal fully, got \(first)")
+        await rearm.append(token: "bc")
+        try await Task.sleep(nanoseconds: 80_000_000)
+        let second = await rearm.snapshot().text
+        try require(second == "abc", "rearm second chunk failed; ticker did not restart, got \(second)")
     }
 
     // MARK: - New: privacy preferences repo
@@ -542,6 +847,14 @@ struct ValidationRunner {
         repo.restoreSession(chat2.id)
         try require(repo.session(id: chat2.id)?.isDeleted == false, "restore did not flip isDeleted")
         try require(repo.session(id: chat2.id)?.deleteExpireAt == nil, "restore did not clear delete expiry")
+
+        // Deleting every visible session should leave the non-deleted session list empty.
+        repo.softDeleteSession(chat2.id)
+        repo.softDeleteSession(chat1.id)
+        let remainingVisible = repo.sessions(includeDeleted: false)
+        try require(remainingVisible.isEmpty, "all soft-deleted sessions should be hidden from visible list")
+        let deletedArchive = repo.sessions(includeDeleted: true)
+        try require(deletedArchive.count == 2, "includeDeleted should still expose soft-deleted sessions for retention")
     }
 
     // MARK: - New: streaming chat orchestrator path
@@ -565,7 +878,7 @@ struct ValidationRunner {
             redactor: PrivacyRedactor(),
             contextBuilder: ContextBuilder(maxCharacters: 500)
         )
-        let buffer = StreamingResponseBuffer()
+        let buffer = StreamingResponseBuffer(instantReveal: true)
 
         let response = try await orchestrator.sendUserMessage(
             "Hi",
@@ -868,6 +1181,43 @@ struct ValidationRunner {
         // No fences, multi-line inline
         let multiline = MessageSegmentParser.parse("Line one\nLine two")
         try require(multiline.count == 1, "no fence should yield single inline")
+
+        // <think> blocks become .thinking segments. This is the bridge between SSE
+        // parser (which wraps reasoning_content / thinking_delta in synthetic tags) and
+        // the UI's collapsible Reasoning card.
+        let thinking = MessageSegmentParser.parse("<think>let me see\nstep by step</think>\n\nAnswer is 42.")
+        try require(thinking.count == 2, "thinking + answer should yield 2 segments, got \(thinking.count): \(thinking)")
+        if case let .thinking(body) = thinking[0] {
+            try require(body == "let me see\nstep by step", "thinking body mismatch: \(body)")
+        } else {
+            throw ValidationError("first segment should be .thinking, got \(thinking[0])")
+        }
+        if case let .inline(content) = thinking[1] {
+            try require(
+                content.trimmingCharacters(in: .whitespacesAndNewlines) == "Answer is 42.",
+                "trailing inline mismatch: \(content)"
+            )
+        } else {
+            throw ValidationError("second segment should be .inline")
+        }
+
+        // Unclosed <think> (mid-stream): everything after the open tag becomes thinking.
+        let openThinking = MessageSegmentParser.parse("<think>still thinking...")
+        try require(openThinking.count == 1, "unclosed think should yield 1 segment")
+        if case let .thinking(body) = openThinking[0] {
+            try require(body == "still thinking...", "open thinking body mismatch")
+        } else {
+            throw ValidationError("should be open thinking")
+        }
+
+        // Stress: 50 alternating segments stays linear and produces 100 outputs
+        // (thinking + inline pairs). Catches accidental O(n²) regressions in the parser.
+        var stress = ""
+        for i in 0..<50 {
+            stress += "<think>round \(i) thinking</think>\nanswer \(i)\n\n"
+        }
+        let stressSegments = MessageSegmentParser.parse(stress)
+        try require(stressSegments.count == 100, "stress: expected 100 segments, got \(stressSegments.count)")
     }
 
     // MARK: - Round 20: turn-aware context truncation
@@ -1039,7 +1389,38 @@ struct ValidationRunner {
 
         let captured = capturer.lock.withLock { capturer.captured }
         try require(captured.first?.role == .system, "system prompt must be first message — got role \(captured.first?.role.rawValue ?? "nil")")
-        try require(captured.first?.content == "Be terse.", "system prompt content mismatch")
+        // The orchestrator now also embeds today's date in the system block so the model
+        // doesn't try to call web_fetch for trivia. The user-supplied prompt should still
+        // appear verbatim somewhere in that combined block.
+        try require(
+            captured.first?.content.contains("Be terse.") == true,
+            "system prompt content mismatch — user prompt missing from combined system block"
+        )
+        try require(
+            captured.first?.content.contains("Today's date is") == true,
+            "system prompt should embed today's date hint so models don't web_fetch for trivia"
+        )
+
+        // Preferred-response-language hint: when the UI is Chinese, ask the model to
+        // reason and reply in Chinese; otherwise English. Test both branches so a future
+        // refactor doesn't silently swap the labels.
+        let zhCapturer = CapturingService()
+        let zhOrch = ChatOrchestrator(repository: repository, aiService: zhCapturer)
+        _ = try await zhOrch.sendUserMessage(
+            "hi", in: session.id, using: model,
+            preferredResponseLanguage: "zh"
+        )
+        let zhSystem = zhCapturer.lock.withLock { zhCapturer.captured }.first?.content ?? ""
+        try require(zhSystem.contains("简体中文"), "Chinese language hint missing from system block: \(zhSystem)")
+
+        let enCapturer = CapturingService()
+        let enOrch = ChatOrchestrator(repository: repository, aiService: enCapturer)
+        _ = try await enOrch.sendUserMessage(
+            "hi", in: session.id, using: model,
+            preferredResponseLanguage: "en"
+        )
+        let enSystem = enCapturer.lock.withLock { enCapturer.captured }.first?.content ?? ""
+        try require(enSystem.contains("Reply in English"), "English language hint missing from system block")
 
         // System prompt presets are well-formed
         for preset in SystemPromptPreset.allCases {
@@ -1362,6 +1743,15 @@ struct ValidationRunner {
         let custom = repository.createSession(title: "Travel planning", modelConfigId: nil)
         _ = try await orchestrator.sendUserMessage("Hello", in: custom.id, using: model)
         try require(repository.session(id: custom.id)?.title == "Travel planning", "user-set title should be preserved")
+
+        // Chinese placeholder from the localized UI should also be treated as a default
+        // title and replaced by the first user message.
+        let zh = repository.createSession(title: "新建对话", modelConfigId: nil)
+        _ = try await orchestrator.sendUserMessage("帮我创建一个明天早上的闹钟", in: zh.id, using: model)
+        try require(
+            repository.session(id: zh.id)?.title == "帮我创建一个明天早上的闹钟",
+            "Chinese placeholder title should be replaced by first user message"
+        )
     }
 
     // MARK: - Round 7: regenerate

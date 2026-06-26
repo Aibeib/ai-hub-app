@@ -50,26 +50,72 @@ struct ModelConfigListView: View {
                 DSSectionHeader(
                     language[.modelsSectionActive],
                     trailing: AnyView(
-                        Button {
-                            editorTarget = .adding(nil)
+                        Menu {
+                            // The "+" button now opens a provider chooser. Picking a provider
+                            // jumps straight into the editor with that provider pre-selected,
+                            // and only that provider's variants populate the model picker —
+                            // so the user never sees a sea of cards or a giant model list
+                            // they don't intend to use.
+                            ForEach(ModelProvider.allCases.filter { $0 != .apple }, id: \.self) { provider in
+                                Button {
+                                    editorTarget = .adding(provider)
+                                } label: {
+                                    Label(provider.displayName, systemImage: providerMenuIcon(for: provider))
+                                }
+                            }
                         } label: {
                             Image(systemName: "plus")
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(DS.Palette.accent)
+                                .frame(width: 28, height: 28)
+                                .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
                     )
                 )
 
                 if enabledModels.isEmpty {
-                    DSEmptyState(
-                        icon: "cpu",
-                        title: language[.modelsEmptyTitle],
-                        message: language[.modelsEmptySubtitle],
-                        action: (language[.modelsEmptyCTA], {
-                            editorTarget = .adding(nil)
-                        })
-                    )
+                    // Empty-state CTA also walks through a provider picker rather than dropping
+                    // into a blank editor — the editor needs *some* provider to render the
+                    // model variant list, so picking first is the right ordering.
+                    VStack(spacing: DS.Space.md) {
+                        DSEmptyState(
+                            icon: "cpu",
+                            title: language[.modelsEmptyTitle],
+                            message: language[.modelsEmptySubtitle],
+                            action: nil
+                        )
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: DS.Space.sm)], spacing: DS.Space.sm) {
+                            ForEach(ModelProvider.allCases.filter { $0 != .apple }, id: \.self) { provider in
+                                Button {
+                                    editorTarget = .adding(provider)
+                                } label: {
+                                    HStack(spacing: DS.Space.sm) {
+                                        DSProviderGlyph(provider: provider)
+                                        VStack(alignment: .leading, spacing: 1) {
+                                            Text(language == .zh ? "添加 \(provider.displayName)" : "Add \(provider.displayName)")
+                                                .font(DS.Typography.caption.weight(.semibold))
+                                                .foregroundStyle(DS.Palette.textPrimary)
+                                            Text(provider.displayName)
+                                                .font(DS.Typography.captionSmall)
+                                                .foregroundStyle(DS.Palette.textTertiary)
+                                        }
+                                        Spacer(minLength: 0)
+                                    }
+                                    .padding(DS.Space.sm)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: DS.Radius.sm, style: .continuous)
+                                            .fill(DS.Palette.surfaceElevated)
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: DS.Radius.sm, style: .continuous)
+                                            .stroke(DS.Palette.border, lineWidth: 0.5)
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
                     .padding(.horizontal, DS.Space.xl)
                 } else {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: DS.Space.lg)], spacing: DS.Space.lg) {
@@ -190,6 +236,18 @@ struct ModelConfigListView: View {
         } message: {
             Text(errorMessage ?? "")
         }
+    }
+}
+
+// MARK: - Helpers
+
+private func providerMenuIcon(for provider: ModelProvider) -> String {
+    switch provider {
+    case .openai: "circle.grid.3x3"
+    case .deepseek: "circle.hexagonpath"
+    case .anthropic: "sparkle"
+    case .volcengine: "flame.fill"
+    case .apple: "apple.logo"
     }
 }
 
@@ -320,6 +378,7 @@ private struct ModelConfigEditorView: View {
     @State private var maxTokens: Int
     @State private var isDefault: Bool
     @State private var isEnabled: Bool
+    @FocusState private var focusedField: FocusedField?
 
     private let id: UUID?
     private let hasExistingKey: Bool
@@ -327,6 +386,13 @@ private struct ModelConfigEditorView: View {
     private let onSave: (ModelConfigurationDraft) -> Void
 
     private static let customSentinel = "__custom__"
+
+    private enum FocusedField: Hashable {
+        case name
+        case customModel
+        case endpoint
+        case apiKey
+    }
 
     init(target: ModelEditorTarget, language: AppLanguage, onSave: @escaping (ModelConfigurationDraft) -> Void) {
         self.language = language
@@ -398,6 +464,9 @@ private struct ModelConfigEditorView: View {
             Form {
                 Section(language[.modelsSectionProvider]) {
                     TextField(language[.modelsFieldDisplayName], text: $name)
+                        .submitLabel(.next)
+                        .focused($focusedField, equals: .name)
+                        .onSubmit { focusNextEditableField() }
 
                     Picker(language[.modelsFieldProvider], selection: $provider) {
                         ForEach(ModelProvider.allCases.filter { $0 != .apple }, id: \.self) { p in
@@ -436,6 +505,9 @@ private struct ModelConfigEditorView: View {
                         TextField(language[.modelsFieldModelName], text: $customModelName)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
+                            .submitLabel(.next)
+                            .focused($focusedField, equals: .customModel)
+                            .onSubmit { focusedField = .endpoint }
                         Text(volcengineHintIfNeeded() ?? language[.modelsFieldCustomModelHint])
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -451,6 +523,9 @@ private struct ModelConfigEditorView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
+                        .submitLabel(.next)
+                        .focused($focusedField, equals: .endpoint)
+                        .onSubmit { focusedField = .apiKey }
 
                     Text(defaultEndpointHint())
                         .font(.caption)
@@ -464,10 +539,22 @@ private struct ModelConfigEditorView: View {
                                 TextField(apiKeyPlaceholder, text: $apiKey)
                                     .textInputAutocapitalization(.never)
                                     .autocorrectionDisabled()
+                                    .submitLabel(.done)
+                                    .focused($focusedField, equals: .apiKey)
+                                    .onSubmit {
+                                        focusedField = nil
+                                        KeyboardDismissal.dismiss()
+                                    }
                             } else {
                                 SecureField(apiKeyPlaceholder, text: $apiKey)
                                     .textInputAutocapitalization(.never)
                                     .autocorrectionDisabled()
+                                    .submitLabel(.done)
+                                    .focused($focusedField, equals: .apiKey)
+                                    .onSubmit {
+                                        focusedField = nil
+                                        KeyboardDismissal.dismiss()
+                                    }
                             }
                         }
                         Button {
@@ -496,10 +583,16 @@ private struct ModelConfigEditorView: View {
             .navigationTitle(id == nil ? language[.modelsAddTitle] : language[.modelsEditTitle])
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(language[.actionCancel]) { dismiss() }
+                    Button(language[.actionCancel]) {
+                        focusedField = nil
+                        KeyboardDismissal.dismiss()
+                        dismiss()
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(language[.actionSave]) {
+                        focusedField = nil
+                        KeyboardDismissal.dismiss()
                         let finalModelName = selectedVariant == Self.customSentinel
                             ? customModelName.trimmingCharacters(in: .whitespacesAndNewlines)
                             : selectedVariant
@@ -522,6 +615,7 @@ private struct ModelConfigEditorView: View {
                 }
             }
         }
+        .scrollDismissesKeyboard(.interactively)
     }
 
     private var apiKeyPlaceholder: String {
@@ -537,6 +631,10 @@ private struct ModelConfigEditorView: View {
             return customModelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         return false
+    }
+
+    private func focusNextEditableField() {
+        focusedField = selectedVariant == Self.customSentinel ? .customModel : .endpoint
     }
 
     private func defaultEndpointHint() -> String {

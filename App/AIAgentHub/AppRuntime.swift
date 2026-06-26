@@ -26,6 +26,10 @@ final class AppRuntime: AppAuthorizationPresenter {
     var sessions: [ChatSessionRecord]
     var privacyPreferences: PrivacyPreferences
     var pendingAuthorization: AuthorizationRequest?
+    /// Bumps whenever a message is appended/deleted/edited. The chat transcript view
+    /// reads this in its body so SwiftUI re-fetches messages from the SwiftData
+    /// repository — which is not observable on its own. Bump via `messagesChanged()`.
+    var messageRevision: Int = 0
     var boundDevices: [BoundDevice] {
         deviceCoordinator.boundDevices()
     }
@@ -47,7 +51,7 @@ final class AppRuntime: AppAuthorizationPresenter {
         let retentionBox = RetentionDaysBox(days: 30)
         retentionDaysBox = retentionBox
         toolRegistry = ToolRegistry(
-            tools: [TextSummaryTool()],
+            tools: Self.makeDefaultTools(),
             auditStore: auditStore,
             authorization: authorizationBroker,
             retentionDaysProvider: { retentionBox.days }
@@ -90,7 +94,7 @@ final class AppRuntime: AppAuthorizationPresenter {
         let retentionBox = RetentionDaysBox(days: 30)
         retentionDaysBox = retentionBox
         toolRegistry = ToolRegistry(
-            tools: [TextSummaryTool()],
+            tools: Self.makeDefaultTools(),
             auditStore: memoryAuditStore,
             authorization: authorizationBroker,
             retentionDaysProvider: { retentionBox.days }
@@ -130,6 +134,15 @@ final class AppRuntime: AppAuthorizationPresenter {
 
     func refreshSessions() {
         sessions = chatRepository.sessions(includeDeleted: false)
+    }
+
+    /// Bump the message revision counter to force any chat view that subscribed via
+    /// `_ = runtime.messageRevision` to re-fetch from the SwiftData repository. Necessary
+    /// because the repository's `messages(for:)` is a direct fetch, not @Observable —
+    /// without this nudge the user's own message wouldn't appear in the transcript until
+    /// model streaming side-effects fire.
+    func messagesChanged() {
+        messageRevision &+= 1
     }
 
     /// Returns the last-opened session if it still exists, isn't archived, and isn't deleted.
@@ -235,18 +248,22 @@ final class AppRuntime: AppAuthorizationPresenter {
 
     func deleteMessage(_ id: UUID, in sessionId: UUID) {
         chatRepository.deleteMessage(id, in: sessionId)
+        messagesChanged()
     }
 
     func updateMessageContent(_ id: UUID, in sessionId: UUID, newContent: String) {
         chatRepository.updateMessageContent(id, in: sessionId, newContent: newContent)
+        messagesChanged()
     }
 
     func deleteMessagesAfter(_ id: UUID, in sessionId: UUID) {
         chatRepository.deleteMessagesAfter(id, in: sessionId)
+        messagesChanged()
     }
 
     func toggleBookmark(_ id: UUID, in sessionId: UUID) {
         chatRepository.toggleBookmark(id, in: sessionId)
+        messagesChanged()
     }
 
     @discardableResult
@@ -330,62 +347,22 @@ final class AppRuntime: AppAuthorizationPresenter {
         }
     }
 
+    private static func makeDefaultTools() -> [any Tool] {
+        // Base provider-neutral tools — summarisation + web fetch — plus the iOS-only
+        // device capability tools (alarms, calendar events, sandbox file writes). The
+        // capability tools are gated by ToolAuthorization at execute time, so the user
+        // still confirms each side-effect.
+        var tools: [any Tool] = [TextSummaryTool(), WebFetchTool()]
+        tools.append(contentsOf: DeviceCapabilityTools.makeAll())
+        return tools
+    }
+
     private func seedDefaultsIfNeeded() {
-        guard modelRepository.all(includeDisabled: true).isEmpty else {
-            refreshModels()
-            return
-        }
-
-        let defaults = [
-            ModelConfigurationDraft(
-                name: "OpenAI",
-                provider: .openai,
-                modelName: "gpt-4o",
-                baseURL: nil,
-                apiKey: nil,
-                temperature: 0.7,
-                maxTokens: 4_096,
-                isDefault: true,
-                isEnabled: true
-            ),
-            ModelConfigurationDraft(
-                name: "DeepSeek",
-                provider: .deepseek,
-                modelName: "deepseek-v4-pro",
-                baseURL: nil,
-                apiKey: nil,
-                temperature: 0.7,
-                maxTokens: 4_096,
-                isDefault: false,
-                isEnabled: true
-            ),
-            ModelConfigurationDraft(
-                name: "Claude",
-                provider: .anthropic,
-                modelName: "claude-sonnet-4-6",
-                baseURL: nil,
-                apiKey: nil,
-                temperature: 0.7,
-                maxTokens: 4_096,
-                isDefault: false,
-                isEnabled: true
-            ),
-            ModelConfigurationDraft(
-                name: "火山方舟",
-                provider: .volcengine,
-                modelName: "doubao-pro-4k",
-                baseURL: nil,
-                apiKey: nil,
-                temperature: 0.7,
-                maxTokens: 4_096,
-                isDefault: false,
-                isEnabled: true
-            )
-        ]
-
-        for draft in defaults {
-            _ = try? modelManager.save(draft)
-        }
+        // We used to pre-seed cards for OpenAI / DeepSeek / Claude / Volcengine here so the
+        // user saw something on first launch. In practice that produced four empty "needs key"
+        // cards which was visually noisy and made the Models tab look unconfigured. We now
+        // start with an empty list — the page shows DSEmptyState pointing at the "+" button,
+        // and each card the user creates is a deliberate choice tied to one provider.
         refreshModels()
     }
 }

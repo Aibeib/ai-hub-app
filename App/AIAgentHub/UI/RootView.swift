@@ -1,5 +1,8 @@
 import SwiftUI
 import AIAgentHubCore
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct RootView: View {
     @Environment(AppRuntime.self) private var runtime
@@ -61,6 +64,29 @@ extension Notification.Name {
 private struct CompactRootView: View {
     @Binding var selectedRoute: AppRoute
     let language: AppLanguage
+
+    @MainActor
+    init(selectedRoute: Binding<AppRoute>, language: AppLanguage) {
+        self._selectedRoute = selectedRoute
+        self.language = language
+
+        #if canImport(UIKit)
+        let appearance = UITabBarAppearance()
+        appearance.configureWithTransparentBackground()
+        appearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterial)
+        appearance.backgroundColor = UIColor(DS.Palette.tabBarBackground)
+        appearance.stackedLayoutAppearance.normal.iconColor = UIColor(DS.Palette.textTertiary)
+        appearance.stackedLayoutAppearance.normal.titleTextAttributes = [
+            .foregroundColor: UIColor(DS.Palette.textTertiary)
+        ]
+        appearance.stackedLayoutAppearance.selected.iconColor = UIColor(DS.Palette.accent)
+        appearance.stackedLayoutAppearance.selected.titleTextAttributes = [
+            .foregroundColor: UIColor(DS.Palette.accent)
+        ]
+        UITabBar.appearance().standardAppearance = appearance
+        UITabBar.appearance().scrollEdgeAppearance = appearance
+        #endif
+    }
 
     var body: some View {
         TabView(selection: $selectedRoute) {
@@ -268,10 +294,13 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable {
 
     var systemImage: String {
         switch self {
-        case .chat: "bubble.left.and.bubble.right.fill"
-        case .models: "cpu"
-        case .devices: "iphone.and.arrow.forward"
-        case .privacy: "lock.shield"
+        // Keep the bottom bar in one visual family with stable SF Symbols available on
+        // the iOS 18 simulator. `sparkles.square` rendered blank on the Models tab in
+        // practice, so use a more reliable model/AI metaphor instead.
+        case .chat: "bubble.left.fill"
+        case .models: "square.stack.3d.up.fill"
+        case .devices: "laptopcomputer.and.iphone"
+        case .privacy: "lock.shield.fill"
         }
     }
 }
