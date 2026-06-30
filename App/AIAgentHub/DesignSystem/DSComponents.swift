@@ -134,7 +134,7 @@ struct DSEmptyState: View {
                         .padding(.vertical, DS.Space.sm)
                         .background(
                             Capsule(style: .continuous)
-                                .fill(DS.Palette.textPrimary)
+                                .fill(DS.Palette.accent)
                         )
                 }
                 .buttonStyle(.plain)
@@ -207,7 +207,7 @@ struct DSPrimaryButton: View {
             .padding(.vertical, DS.Space.sm)
             .background(
                 Capsule(style: .continuous)
-                    .fill(DS.Palette.textPrimary)
+                    .fill(DS.Palette.accent)
             )
         }
         .buttonStyle(.plain)

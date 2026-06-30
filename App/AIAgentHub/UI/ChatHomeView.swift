@@ -118,17 +118,15 @@ struct ChatHomeView: View {
                         sessionListPane(forSheet: true)
                     },
                     onDismiss: {
-                        isShowingSessionList = false
+                        withAnimation(DS.Motion.springSnappy) {
+                            isShowingSessionList = false
+                        }
                     }
                 )
-                .ignoresSafeArea()
                 .transition(.move(edge: .leading).combined(with: .opacity))
                 .zIndex(100)
             }
         }
-        .toolbar(isShowingSessionList ? .hidden : .visible, for: .tabBar)
-        .toolbar(isShowingSessionList ? .hidden : .visible, for: .navigationBar)
-        .animation(DS.Motion.springSnappy, value: isShowingSessionList)
         .onAppear {
             if selectedSessionId == nil {
                 selectedSessionId = runtime.restorableSessionId()
@@ -166,7 +164,9 @@ struct ChatHomeView: View {
     private var compactTopBar: some View {
         HStack(spacing: DS.Space.sm) {
             Button {
-                isShowingSessionList = true
+                withAnimation(DS.Motion.springSnappy) {
+                    isShowingSessionList = true
+                }
             } label: {
                 Image(systemName: "line.3.horizontal")
                     .font(.system(size: 16, weight: .semibold))
@@ -1007,51 +1007,36 @@ private struct SessionDrawerOverlay<Content: View>: View {
     }
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            Color.black.opacity(colorScheme == .dark ? 0.42 : 0.24)
-                .ignoresSafeArea()
-                .onTapGesture(perform: onDismiss)
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Color.black.opacity(colorScheme == .dark ? 0.42 : 0.24)
+                    .ignoresSafeArea()
+                    .onTapGesture(perform: onDismiss)
 
-            VStack(spacing: 0) {
-                HStack {
-                    Button(action: onDismiss) {
-                        Image(systemName: "line.3.horizontal")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(DS.Palette.textSecondary)
-                            .frame(width: 40, height: 40)
-                    }
-                    .buttonStyle(.plain)
-
-                    Spacer()
-
-                    Button(language[.actionDone], action: onDismiss)
-                        .font(DS.Typography.callout.weight(.semibold))
-                        .foregroundStyle(DS.Palette.accent)
+                VStack(spacing: 0) {
+                    content()
+                        .padding(.top, proxy.safeAreaInsets.top + DS.Space.sm)
+                        .padding(.bottom, proxy.safeAreaInsets.bottom + DS.Space.sm)
                 }
-                .padding(.horizontal, DS.Space.md)
-                .padding(.top, DS.Space.lg)
-                .padding(.bottom, DS.Space.xs)
-
-                content()
-            }
-            .frame(width: drawerWidth)
-            .frame(maxHeight: .infinity, alignment: .top)
-            .background(drawerBackground.ignoresSafeArea())
-            .clipShape(
-                UnevenRoundedRectangle(
-                    topLeadingRadius: 0,
-                    bottomLeadingRadius: 0,
-                    bottomTrailingRadius: 26,
-                    topTrailingRadius: 26,
-                    style: .continuous
+                .frame(width: drawerWidth)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .background(drawerBackground.ignoresSafeArea())
+                .clipShape(
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 0,
+                        bottomLeadingRadius: 0,
+                        bottomTrailingRadius: 26,
+                        topTrailingRadius: 26,
+                        style: .continuous
+                    )
                 )
-            )
-            .shadow(color: .black.opacity(colorScheme == .dark ? 0.42 : 0.18), radius: 28, x: 10, y: 0)
-            .ignoresSafeArea(edges: [.top, .bottom, .leading])
+                .shadow(color: .black.opacity(colorScheme == .dark ? 0.42 : 0.18), radius: 28, x: 10, y: 0)
+                .ignoresSafeArea(edges: [.top, .bottom, .leading])
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .ignoresSafeArea()
+            .transition(.move(edge: .leading).combined(with: .opacity))
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .ignoresSafeArea()
-        .transition(.move(edge: .leading).combined(with: .opacity))
     }
 }
 

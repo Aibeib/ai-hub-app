@@ -299,7 +299,7 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable {
         // practice, so use a more reliable model/AI metaphor instead.
         case .chat: "bubble.left.fill"
         case .models: "square.stack.3d.up.fill"
-        case .devices: "laptopcomputer.and.iphone"
+        case .devices: "iphone.gen3"
         case .privacy: "lock.shield.fill"
         }
     }
