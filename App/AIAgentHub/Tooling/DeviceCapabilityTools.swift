@@ -76,11 +76,23 @@ struct CreateAlarmTool: Tool {
             body = ""
         }
 
-        guard let fireDate = Self.parseISODate(fireAtRaw) else {
+        guard var fireDate = Self.parseISODate(fireAtRaw) else {
             return ToolResult(displayText: "create_alarm couldn't parse `fire_at`=\"\(fireAtRaw)\". Use ISO-8601, e.g. 2026-06-25T07:30:00+08:00.")
         }
-        if fireDate < Date() {
-            return ToolResult(displayText: "create_alarm refused: \(fireAtRaw) is in the past. Pick a future time.")
+        // The model sometimes names a clock time that has already passed today (e.g. the
+        // user says "8am" mid-afternoon). Rather than failing — which surfaces to the user
+        // as a confusing error — roll forward exactly 24 hours so the alarm fires at the
+        // same clock time tomorrow. We only auto-correct when the requested moment is less
+        // than a full day in the past; anything further back is almost certainly a model
+        // mistake and we surface it as an error instead.
+        let now = Date()
+        if fireDate < now {
+            let secondsBehind = now.timeIntervalSince(fireDate)
+            if secondsBehind < 86_400 {
+                fireDate = fireDate.addingTimeInterval(86_400)
+            } else {
+                return ToolResult(displayText: "create_alarm refused: \(fireAtRaw) is more than a day in the past. Pick a future time.")
+            }
         }
 
         #if canImport(UserNotifications)
@@ -115,8 +127,24 @@ struct CreateAlarmTool: Tool {
             return ToolResult(displayText: "create_alarm failed to schedule: \(error.localizedDescription)")
         }
         let display = ISO8601DateFormatter().string(from: fireDate)
+
+        // iOS exposes no public API to write a real alarm into the Clock app — only local
+        // notifications. So after scheduling the notification we also drop the user into
+        // the Clock app's alarm tab via the `clock-alarm://` scheme (iOS 17+) so they can
+        // add a persistent system alarm for the same time in one tap. The notification is
+        // the reliable fallback; the Clock-app jump is a convenience. Opening is best-
+        // effort — if the scheme isn't available we still report success on the notification.
+        #if canImport(UIKit)
+        let openedClock = await Self.openClockAppAlarms()
+        let clockLine = openedClock
+            ? " Also opened the Clock app's alarm tab so you can add a persistent system alarm at the same time."
+            : " You can also add a permanent alarm in the Clock app manually."
+        #else
+        let clockLine = ""
+        #endif
+
         return ToolResult(
-            displayText: "Scheduled alarm \"\(title)\" for \(display). Notification id: \(id).",
+            displayText: "Scheduled alarm \"\(title)\" for \(display). Notification id: \(id).\(clockLine)",
             metadata: ["notification_id": id]
         )
         #else
@@ -145,6 +173,20 @@ struct CreateAlarmTool: Tool {
         local.timeZone = TimeZone.current
         return local.date(from: raw)
     }
+
+    #if canImport(UIKit)
+    /// Best-effort jump to the Clock app's alarm tab. `clock-alarm://` opens the Clock
+    /// app directly on the Alarms screen on iOS 17+; on older OS versions or where the
+    /// scheme isn't registered it quietly no-ops. Must run on the main actor because
+    /// `UIApplication.open` is main-actor-isolated.
+    @MainActor
+    private static func openClockAppAlarms() async -> Bool {
+        guard let url = URL(string: "clock-alarm://") else { return false }
+        let app = UIApplication.shared
+        guard app.canOpenURL(url) else { return false }
+        return await app.open(url, options: [:])
+    }
+    #endif
 }
 
 // MARK: - Calendar events

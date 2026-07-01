@@ -537,7 +537,7 @@
 				INFOPLIST_KEY_NSCalendarsWriteOnlyAccessUsageDescription = "AI Agent Hub adds events to your calendar when you ask the assistant to schedule something.";
 				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "AI Agent Hub creates reminders and alarms when you ask the assistant to set one.";
 				INFOPLIST_KEY_NSUserNotificationUsageDescription = "AI Agent Hub schedules local notifications so the assistant can remind you of alarms it sets for you.";
-				INFOPLIST_KEY_LSApplicationQueriesSchemes = "App-Prefs,alipay,alipays,baidumap,bilibili,cainiao,cn.12306,comgooglemaps,ctripcomh5,dianping,diditaxi,dingtalk,eleme,fb-messenger,feishu,firefox,googlechrome,imeituan,iosamap,kugou,kwai,kwapp,line,linkedin,mailto,maps,microsoft-edge,mqq,music,nflx,notion,openapp.jdmobile,orpheus,pinduoduo,qqmusic,qunariphone,sf-express,sinaweibo,slack,sms,snssdk1128,snssdk1233,snssdk141,snssdk32,spotify,taobao,tel,telegram,tg,tmall,uber,weixin,whatsapp,wxwork,xhsdiscover,youtube,zoomus";
+				INFOPLIST_KEY_LSApplicationQueriesSchemes = "App-Prefs,alipay,alipays,baidumap,bilibili,cainiao,clock-alarm,cn.12306,comgooglemaps,ctripcomh5,dianping,diditaxi,dingtalk,eleme,fb-messenger,feishu,firefox,googlechrome,imeituan,iosamap,kugou,kwai,kwapp,line,linkedin,mailto,maps,microsoft-edge,mqq,music,nflx,notion,openapp.jdmobile,orpheus,pinduoduo,qqmusic,qunariphone,sf-express,sinaweibo,slack,sms,snssdk1128,snssdk1233,snssdk141,snssdk32,spotify,taobao,tel,telegram,tg,tmall,uber,weixin,whatsapp,wxwork,xhsdiscover,youtube,zoomus";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -574,7 +574,7 @@
 				INFOPLIST_KEY_NSCalendarsWriteOnlyAccessUsageDescription = "AI Agent Hub adds events to your calendar when you ask the assistant to schedule something.";
 				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "AI Agent Hub creates reminders and alarms when you ask the assistant to set one.";
 				INFOPLIST_KEY_NSUserNotificationUsageDescription = "AI Agent Hub schedules local notifications so the assistant can remind you of alarms it sets for you.";
-				INFOPLIST_KEY_LSApplicationQueriesSchemes = "App-Prefs,alipay,alipays,baidumap,bilibili,cainiao,cn.12306,comgooglemaps,ctripcomh5,dianping,diditaxi,dingtalk,eleme,fb-messenger,feishu,firefox,googlechrome,imeituan,iosamap,kugou,kwai,kwapp,line,linkedin,mailto,maps,microsoft-edge,mqq,music,nflx,notion,openapp.jdmobile,orpheus,pinduoduo,qqmusic,qunariphone,sf-express,sinaweibo,slack,sms,snssdk1128,snssdk1233,snssdk141,snssdk32,spotify,taobao,tel,telegram,tg,tmall,uber,weixin,whatsapp,wxwork,xhsdiscover,youtube,zoomus";
+				INFOPLIST_KEY_LSApplicationQueriesSchemes = "App-Prefs,alipay,alipays,baidumap,bilibili,cainiao,clock-alarm,cn.12306,comgooglemaps,ctripcomh5,dianping,diditaxi,dingtalk,eleme,fb-messenger,feishu,firefox,googlechrome,imeituan,iosamap,kugou,kwai,kwapp,line,linkedin,mailto,maps,microsoft-edge,mqq,music,nflx,notion,openapp.jdmobile,orpheus,pinduoduo,qqmusic,qunariphone,sf-express,sinaweibo,slack,sms,snssdk1128,snssdk1233,snssdk141,snssdk32,spotify,taobao,tel,telegram,tg,tmall,uber,weixin,whatsapp,wxwork,xhsdiscover,youtube,zoomus";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

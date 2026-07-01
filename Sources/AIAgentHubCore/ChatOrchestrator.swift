@@ -327,10 +327,25 @@ public final class ChatOrchestrator: @unchecked Sendable {
         now: Date = Date(),
         preferredLanguage: String? = nil
     ) -> String? {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        let dateLine = "Today's date is \(formatter.string(from: now)) (UTC). Use this for any \"what day is it / what's the date / current year\" questions instead of calling tools."
+        let dateFormatter = DateFormatter()
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        // The wall-clock time is essential for time-sensitive tools: `create_alarm` rejects
+        // any `fire_at` in the past, so without the current time the model invents a
+        // timestamp that is usually already gone (e.g. "8am" when it's already afternoon)
+        // and the tool fails. We give both the date and the local time with offset so the
+        // model can emit a future ISO-8601 timestamp on the first try.
+        let timeFormatter = DateFormatter()
+        timeFormatter.locale = Locale(identifier: "en_US_POSIX")
+        timeFormatter.timeZone = TimeZone.current
+        timeFormatter.dateFormat = "HH:mm"
+        let localTime = timeFormatter.string(from: now)
+        let offset = TimeZone.current.secondsFromGMT(for: now)
+        let offsetHours = offset / 3600
+        let offsetMinutes = abs(offset) / 60 % 60
+        let offsetSign = offset >= 0 ? "+" : "-"
+        let offsetString = String(format: "%@%02d:%02d", offsetSign, abs(offsetHours), offsetMinutes)
+        let dateLine = "Today's date is \(dateFormatter.string(from: now)). The current local time is \(localTime) (timezone offset \(offsetString) from UTC). When the user asks for a time like \"8am\" or \"in 2 hours\", compute a concrete ISO-8601 `fire_at` that is in the FUTURE relative to this current time; if the requested clock time has already passed today, use tomorrow at that time. Use this for any \"what day is it / what's the date / current year / current time\" questions instead of calling tools."
 
         let languageLine: String?
         switch preferredLanguage?.lowercased() {
